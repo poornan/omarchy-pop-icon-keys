@@ -164,8 +164,9 @@ Panel {
   // `solaar show` talks to the keyboard and takes a few seconds, so poll gently.
   Timer { interval: 120000; running: true; repeat: true; onTriggered: root.refresh() }
 
-  // Read again shortly after a restore, to show whether it worked.
-  Timer { id: restoreCheck; interval: 3000; repeat: false; onTriggered: root.refresh() }
+  // Read again after a restore, once Solaar's deferred save (about 5 s) has landed;
+  // reading sooner shows the restored key as "needs setup" for a moment.
+  Timer { id: restoreCheck; interval: 8000; repeat: false; onTriggered: root.refresh() }
 
   // After the setup terminal opens.
   Timer {
