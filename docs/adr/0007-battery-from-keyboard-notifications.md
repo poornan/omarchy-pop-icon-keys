@@ -75,7 +75,10 @@ Use Solaar rules to observe the keyboard's battery notifications.
   (`level` may be null), with `source` `report` or `query` (Solaar backend) or
   `backend` (the figure another backend's daemon cached, read at `at`, for
   example OpenLogi's `openlogi api devices` battery). A report newer than the keyboard's last connect
-  is preferred; otherwise the query figure is used with `source` `query`. A
+  is preferred; otherwise the query figure is used with `source` `query`. The
+  rule is held in **one function** (`report_is_fresh(report_at, connected_at)`)
+  with a test pinning it, so changing it is a one-line edit (see the pending note
+  under Consequences). A
   report's `value` is its bucket midpoint.
 - The widget shows "≈15%" and the report's age for a report, and "Full?", not a
   confident 100 %, when only the query says 100.
@@ -92,7 +95,12 @@ Use Solaar rules to observe the keyboard's battery notifications.
 - The figure is accurate to a 10 % bucket and only as fresh as the keyboard's
   last report; the widget shows the age. A report older than the last connect is
   ignored, so after a reconnect the figure falls back to the query until the next
-  report.
+  report. **This freshness rule is pending the owner's choice**: it keeps a
+  pre-restart report from beating a fresh query, but the query can be the stale
+  100 % that this ADR exists to avoid, so after a Solaar restart the widget can
+  show "Full?" where the last report said 15 %. The current rule stays until the
+  owner decides; the alternative is to prefer the report whatever its age and show
+  the age.
 - Setup writes more rules (ten per battery-capable keyboard), all in the managed
   block, covered by the same classify, reconcile and uninstall paths.
 - Live verification needs Solaar to reload the rules; setup restarts it, but the

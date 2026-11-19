@@ -8,7 +8,8 @@ Accepted. Amended after the architect review of 2026-11-19 (identity, actions,
 `Device` rule, applied state, `absent`, schema field, non-goals) and again after
 the plan review of the same day (module layout, applied-record order and
 content, injected key table, escaping, restore, two-phase setup), and a third
-time for the swappable backend ([ADR 0008](0008-swappable-input-backend.md)).
+time for the swappable backend ([ADR 0008](0008-swappable-input-backend.md)); a
+fourth time for the Solaar `show` crash (per-device queries, `unknown` state).
 Rename: [ADR 0006](0006-rename-to-logitech-keys.md).
 
 Owner decisions behind it: D1 ("make it multi-keyboard before submitting"),
@@ -49,6 +50,11 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
   similar); there is no `Model` condition.
 - Solaar's rule editor drops comments.
 - `Modifiers` returns False without a keymap on Wayland.
+- Plain `solaar show` (all devices) can crash partway: on the owner's machine
+  (Solaar 1.1.20) it raises `UnicodeDecodeError` in `get_host_names` while
+  printing the MX Master 4 (host-name chunks of 14 bytes are decoded separately),
+  after the POP Icon Keys block and before the Unifying receiver, with a
+  non-zero exit. `solaar show "<name>"` for one device works.
 
 ## Decision
 
@@ -70,7 +76,14 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
 - **Identity.** A keyboard matches a profile by exact model id first, then by
   exact name. Never by substring. Validation refuses a profile name that is a
   substring of another's. Status checks each device block's `Model ID:` line;
-  restore skips an ambiguous selector.
+  restore skips an ambiguous selector. **Status and restore do not rely on one
+  `solaar show all` call** (it can crash, see Context; this replaces the earlier
+  plan to split one `solaar show all` per device): they query each profiled
+  device by exact selector, and because `solaar show "<name>"` still matches by
+  name substring they parse every returned block on its own and treat a block
+  whose `Model ID:` (or exact name) is not the profile's as not this device, which
+  also makes that selector ambiguous. Details: ADR 0008, "The Solaar backend
+  queries one device at a time".
 - **Action vocabulary.** Profiles name an action id; `lib/actions.json` maps it
   to an argument list or plugin helper. A contributor PR therefore cannot put an
   arbitrary command in a Solaar rule or Lua string. A new action is a reviewed
@@ -116,6 +129,10 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
 - **`absent` state.** A key in neither diversion line is `absent`: dimmed, and
   not counted toward needing setup. A wrong cid in an untested profile must not
   keep the bar icon red.
+- **`unknown` state.** A keyboard Solaar knows but whose `solaar show` output was
+  truncated, crashed or timed out is `unknown`: never disconnected and never not
+  set up; dimmed, not counted toward the warning, not restored. A block that
+  parsed completely is kept.
 - **Status and widget.** `lib/status.py` parses the diversion lines exactly and
   emits JSON with a `schema` field and one section per connected profiled
   keyboard. One bar icon, one popup section per keyboard.

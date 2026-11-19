@@ -18,7 +18,9 @@ slice S10").
 The owner answered the three open questions on 2026-11-19 (decisions D15 to D17,
 below); there are no open questions. Amended the same day with the facts read
 from the owner's live OpenLogi 0.9.0 install (agent installed, disabled, not
-running, never started by this work) and from the OpenLogi source.
+running, never started by this work) and from the OpenLogi source. Amended again the same day for the owner's finding
+that plain `solaar show` crashes on this machine ("The Solaar backend queries one
+device at a time", below).
 
 ## Context
 
@@ -69,6 +71,19 @@ Live facts, read-only, 2026-11-19, OpenLogi 0.9.0 on the owner's machine (agent
   battery broadcast (`inventory/replay_tests.rs`, `battery_broadcast_refresh`).
   There is no special battery command. This is the prior art for ADR 0007.
 
+Solaar fact found by the owner, 2026-11-19 (Solaar 1.1.20): plain `solaar show`
+(all devices) **crashes** on the owner's machine partway through. After printing
+the POP Icon Keys block it raises `UnicodeDecodeError: 'utf-8' codec can't decode
+byte 0xe2 in position 13` in `logitech_receiver/hidpp20.py:2078`, `get_host_names`
+(called from `solaar/cli/show.py:326`) while printing the MX Master 4: Solaar
+decodes the host-name chunks of 14 bytes separately, so a multibyte character
+split across two chunks fails. The output stops before the Unifying receiver, so
+the MX Keys for Mac never appears, and the exit status is non-zero.
+`solaar show "POP Icon Keys"` and `solaar show "MX Keys for Mac"` each work. A
+selector that matches no device exits 1 with `no device found matching '<name>'`.
+Any device on the machine, profiled or not, can therefore break a whole-machine
+`solaar show`, so the plugin must not depend on it.
+
 The Solaar behaviour of ADR 0005 and 0007 (rules, `config.yaml` diversion, the
 `Device` condition, the battery notification rules) is correct but is one
 backend's implementation, and must stop leaking into profiles, status, the
@@ -104,9 +119,11 @@ in v0.4.0.
   `EXPERIMENTAL`, `LIVE_KEY_STATE` (Solaar: `EXPERIMENTAL` false,
   `LIVE_KEY_STATE` true; OpenLogi: `EXPERIMENTAL` true, `LIVE_KEY_STATE` false;
   `LIVE_KEY_STATE` says whether the backend can read which keys are diverted
-  right now); `collect(run, paths)` (the only I/O; `run(argv, timeout)` is
-  injected; the read-only argv allow-list is `solaar show all`, reading
-  `config.yaml` and the battery state files for Solaar, and `openlogi api status`
+  right now); `collect(run, paths, profiles)` (the only I/O; `run(argv, timeout)` is
+  injected; the read-only argv allow-list is `solaar show "<selector>"`, one call
+  per profiled device with an exact selector (see "The Solaar backend queries one
+  device at a time"), never `solaar show all`, plus reading `config.yaml` and the
+  battery state files for Solaar, and `openlogi api status`
   and `openlogi api devices` for OpenLogi); `probe(raw)` returning
   `{version, usable, problem}` with `problem` one of `agentUnavailable`,
   `versionMismatch`, `inventoryNotReady`, `unknownSchema` or null;
@@ -141,10 +158,14 @@ in v0.4.0.
 ```
 
 - Key states (camelCase): `routed`, `dropped`, `notSetUp`, `absent`,
-  `unsupportedByBackend`. **`absent`** is a profile fact (the keyboard does not
-  report the cid). **`unsupportedByBackend`** is a backend fact (the active
-  backend cannot route the cid; `reason` is `notImplemented` or `unverified`).
-  Both are dimmed and neither counts toward the warning.
+  `unsupportedByBackend`, `unknown`. **`absent`** is a profile fact (the keyboard
+  does not report the cid). **`unsupportedByBackend`** is a backend fact (the
+  active backend cannot route the cid; `reason` is `notImplemented` or
+  `unverified`). **`unknown`** is a read fact: the backend could not read this
+  keyboard completely (see "The Solaar backend queries one device at a time");
+  the keyboard section then carries `readProblem` (`solaarCrashed`, `timeout` or
+  `noOutput`, otherwise null). All three are dimmed and none counts toward the
+  warning; `unknown` is never restored.
 - When `liveKeyState` is false, `dropped` is never emitted, `routed` means
   "configured and the agent is running", and the widget offers no restore.
 - Battery `source` is `report`, `query` or `backend` (the daemon's cached value
@@ -161,6 +182,39 @@ in v0.4.0.
   Python; action ids only (no profile string reaches YAML, TOML or Lua); every
   Solaar rule, battery rules included, has the `Device` `Or`; the `absent`
   meaning; legacy v0.3 migration stays inside the Solaar adapter.
+
+### The Solaar backend queries one device at a time
+
+Decision (owner finding, 2026-11-19, see the Solaar fact in Context): the Solaar
+backend **never runs `solaar show all`** and never relies on one whole-machine
+call.
+
+- **Selectors.** `collect` runs `solaar show "<selector>"` once per selector, with
+  the 20 second timeout, where the selectors are each profile's exact `names`
+  and the names of the saved `config.yaml` entries that `known` matches to a
+  profile by model id (so a keyboard whose printed name differs from the profile
+  still has a selector). No other argv is allowed. The selector list is the
+  allow-list; it comes from data, not from bash.
+- **Each returned block is parsed on its own.** A selector still matches by name
+  **substring**, so one call can return more than one device block. The status
+  code verifies each block's `Model ID:` line (or, when that is all zero, its
+  exact name) with the one identity module and treats a block whose identity does
+  not match the profile as **not this device**. That block still counts for
+  ambiguity: if a selector returns a block that is not the profiled device, the
+  selector is ambiguous and restore skips it (ADR 0005, unchanged).
+- **A failed or truncated call is `unknown`, never "disconnected" or "not set
+  up".** A non-zero exit (a traceback), a timeout or empty output means the
+  devices not yet printed were not read. A device block counts as complete when
+  the next device header follows it, or the call exited 0; the block being
+  printed when the call failed is incomplete. Complete blocks are kept and parsed
+  normally. A profiled keyboard that is known to Solaar (a saved entry matches it)
+  and was not read completely is shown with `unknown` keys and a `readProblem`; it
+  is not counted toward the warning and is not restored. `no device found
+  matching` (a clean "not present") lists nothing, as before. A keyboard Solaar
+  has no saved entry for and whose call failed is not listed (the plugin cannot
+  claim it exists).
+- **Cost.** One call per selector (two keyboards, two or three calls) instead of
+  one; each has its own timeout, so one hung device cannot hide the others.
 
 ### OpenLogi: what the documents settle
 
@@ -449,7 +503,10 @@ All three former open questions are answered; none remain.
   `keep_os_layout=off` (`openlogi api os-layout --set off --save`): it warns and
   the README documents it. `keep_os_layout` is never changed by the plugin.
 - **D17 (Q2), read-only now, writer later.** The owner's words: "or we can refer
-  how they read battery and reproduce on ours". Checked in OpenLogi's source
+  how they read battery and reproduce on ours"; asked whether that meant
+  reproducing OpenLogi's battery method through ADR 0007 with the OpenLogi backend
+  read-only and experimental in v0.4.0 and fully supported in v0.5.0, the owner
+  confirmed: "yes, that's what I meant". Checked in OpenLogi's source
   (master): it uses the same HID++ UnifiedBattery `0x1004` `getStatus` and status
   event 0 with the same byte layout as Solaar, re-reads on every poll, never
   restores a saved reading and handles the battery broadcast; there is no special
