@@ -34,7 +34,13 @@ and rows 47–50; the gate was re-run. **Solaar crash pass, 2026-11-19:** the ow
 ran plain `solaar show` and it crashes on this machine partway (a `UnicodeDecodeError`
 in `get_host_names` while printing the MX Master 4), so the Solaar backend queries
 one device at a time, treats truncated output as `unknown`, and AC53–AC57 and rows
-51–55 were added (ADR 0005, 0008); the gate was re-run.
+51–55 were added (ADR 0005, 0008); the gate was re-run. **Plan-review round 6
+pass, 2026-11-19:** the five personas reviewed the backend extension of the plan;
+their blockers and warnings changed the module layout (an import-free backend
+contract, a split status module, one writer of the applied record, typed plan
+steps, pure switch steps), the widget and plan copy, and several criteria
+(AC1, AC9, AC27, AC28, AC31, AC33, AC35, AC36, AC38, AC39, AC43, AC49, AC53,
+AC56 amended; AC58–AC64 added; rows 57–66); the gate was re-run.
 
 ## Intent Description
 
@@ -196,22 +202,41 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   each); `lib/applied.py` is the applied record and the one place the plugin
   version is read (from `manifest.json`); `lib/legacy.py` is the single frozen v0.3
   table (marker, helper name, the five argument lists, the v0.3 key set);
-  `lib/plan.py` computes the consent plan as data; `lib/edit.py` is the command
-  line only.
+  `lib/plan.py` computes the consent plan as data and is backend-neutral (it takes
+  the daemon actions and a backend descriptor as data); `lib/statedir.py` is the
+  state-directory path and its removal (`battery/` first, `applied.json` last);
+  `lib/statuscontract.py` is the neutral status contract (the key-state enum, the
+  shapes, `validate_status`, `build_status`, `choose_battery` and `battery_for`;
+  no I/O); `lib/solaarshow.py` parses `solaar show` (blocks, selectors, the state
+  table, `os_mode`, the restore plan; no I/O); `lib/switch.py` is the pure list of
+  switch steps; `lib/edit.py` is the command line only: a verb table
+  `VERBS = {name: handler}` whose handlers live in the modules that own the
+  behaviour. **Import convention:** an entry script puts its own folder first on
+  `sys.path` (`sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))`)
+  before it imports a sibling, so it runs under `python3 -I`; every module also
+  imports on its own in a fresh interpreter (a test imports each one, AC58).
 - **Backend seam** (ADR 0008). One **active backend** per machine, recorded in
   `applied.json`. A backend is a pair: `lib/backends/<name>.py` (all data work:
   reading, parsing, identity, planning, file edits) and `lib/backends/<name>.sh`
   (process lifecycle only: installed, running, stop, start, restart-on-exit; bash
-  never learns a file format). `lib/backends/__init__.py` holds the contract (key
-  states, battery shape, `Plan` and `FileEdit`) and `REGISTRY = {"solaar",
-  "openlogi"}`. `lib/backends/solaar.py` is a thin adapter over the existing
+  never learns a file format). The Python contract types (the battery shape, `Plan`
+  as an **ordered list of typed steps** `block`, `record`, `file` and `divert`,
+  each with a backup policy, and `FileEdit`) live in the import-free
+  `lib/backends/contract.py`; the key-state enum lives with the status contract in
+  `lib/statuscontract.py` and the backends import it; the registry
+  (`lib/backends/registry.py`, exactly `solaar` and `openlogi`) imports a backend
+  lazily by name (`get(name)`); `lib/backends/plan_common.py` builds the
+  backend-neutral Hyprland edit; `lib/backends/__init__.py` is empty, so no import
+  cycle is possible (AC58). `lib/backends/solaar.py` is a thin adapter over the existing
   identity, status, rules, diversion and battery modules (no logic moves);
   `lib/backends/solaar.sh` sources `lib/solaar-procs.sh`. `lib/edit.py` stays the
   only command line, with the verbs `plan|apply|remove|status|restore --backend
   <name>`; one executor in `lib/fileedit.py` writes every `FileEdit` (atomic,
-  backup on change, dry-run diffs, marker checks, once for all backends). Python
+  backup on change, dry-run diffs, marker checks, once for all backends; it takes
+  only the contract types and applies the steps in order, each atomically,
+  AC60). Python
   contract per backend: constants `NAME`, `LABEL`, `EXPERIMENTAL`,
-  `LIVE_KEY_STATE`; `collect(run, paths, profiles)` (the **only** function that does I/O;
+  `LIVE_KEY_STATE`, `CAN_START` (Solaar true, OpenLogi false); `collect(run, paths, profiles)` (the **only** function that does I/O;
   `run(argv, timeout)` is injected and a fixed read-only argv allow-list applies:
   `solaar show "<selector>"` with one exact selector per profiled device (never
   `solaar show all`, which can crash on this machine), reading `config.yaml` and
@@ -220,9 +245,10 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   `known(raw, profiles)`; `keyboards(raw, profiles, applied, now)`;
   `restore(sections)` (an argv list, never a file write); `plan_apply(...)` and
   `plan_remove(...)` returning a `Plan`. Bash contract per backend, namespaced:
-  `<b>_installed`, `<b>_running`, `<b>_stop`, `<b>_start`,
-  `<b>_restart_if_stopped`; all honour `--dry-run` and are called only after
-  consent. Solaar: `LIVE_KEY_STATE` true, not experimental, the reference.
+  `<b>_installed`, `<b>_running`, `<b>_resolve` (Solaar: start it once so it
+  records the connected keyboards, wait, stop it; OpenLogi: no-op), `<b>_stop`,
+  `<b>_start`, `<b>_restart_if_stopped`; all honour `--dry-run` and are called
+  only after consent, and setup calls only these namespaced functions. Solaar: `LIVE_KEY_STATE` true, not experimental, the reference.
   OpenLogi: `EXPERIMENTAL` true, `LIVE_KEY_STATE` false; installed means
   `command -v openlogi` and `systemctl --user cat openlogi-agent.service`;
   running means `systemctl --user is-active --quiet openlogi-agent.service`, else
@@ -264,11 +290,14 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   `config.yaml` entries matched to the profile by model id. Restore addresses the keyboard by the
   matched block's exact printed name and skips a keyboard whose selector is
   ambiguous (that name is contained in another device block's name).
-- **Status:** `lib/status.py` parses the two diversion lines per key exactly
+- **Status:** `lib/solaarshow.py` parses the two diversion lines per key exactly
   (key-name suffix pairs such as "Search" / "MultiPlatform Search" are handled
-  by cid, not by substring) and prints JSON: a `schema` field (1), a `backend`
+  by cid, not by substring) and `lib/statuscontract.py` builds and validates the
+  JSON: a `schema` field (1), a `backend`
   block `{name, experimental, installed, running, usable, problem, liveKeyState,
-  otherRunning, canStart}` and one section per connected profiled keyboard (`slug`, `name`,
+  otherRunning, canStart}` (OpenLogi-facing backend fields are additive and
+  optional: the validator allows extra backend fields and the widget ignores
+  fields it does not know) and one section per connected profiled keyboard (`slug`, `name`,
   `tested`, `connected`, `identity`, `battery`, `keys` with `cid`, label, state
   and an optional `reason`, and `bindings`). `otherRunning` names the other
   backend when its daemon also runs; `canStart` is true only when the backend is
@@ -296,15 +325,25 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   `unsupportedByBackend` (a backend fact: the active backend cannot route the cid;
   `reason` `notImplemented` or `unverified`) is dimmed too, reads "Not supported
   by <backend>" and does not count either; `dropped` alone does turn the icon
-  warning. When `liveKeyState` is false (OpenLogi) `dropped` is never emitted,
-  `routed` means "configured and the agent is running", and the widget offers no
-  restore. Names are resolved through the injected key table
+  warning. When `liveKeyState` is false (OpenLogi) `dropped` is never emitted, no
+  key is ever `routed` in v0.4.0 (the "configured and the agent is running"
+  meaning is deferred to the writer slice S10), and the widget offers no
+  restore. **While the Solaar daemon is stopped the per-device `solaar show` still
+  works** (it reads the receiver in its own process), so the status still lists
+  the saved or profiled keyboards read per device, with `backend.running` false
+  and `canStart` true; keys that look lost are emitted as `dropped` and the
+  widget words them "Not active (Solaar stopped)" (AC49, AC61). Names are resolved through the injected key table
   by cid where one is available. `keyboards` are sorted by slug, `keys` are in
   profile order, `battery` is null or `{value, level, source, at}`
   (see **Battery**; `level` may be null; the report-or-query rule is one function,
   `choose_battery(report, query)`, ADR 0007, D18). A keyboard that is paired but
   offline is not listed. The bash helper `bin/logitech-keys-status` only runs it
-  and always exits 0 with valid JSON.
+  and always exits 0 with valid JSON; in Slice 2 it calls a thin runner
+  (`lib/status.py`, injected-run wiring only), which is deleted when the backends
+  serve status, so only a backend's `collect` does I/O (AC35, AC58). The active
+  backend comes from the one decision verb `select-backend`, which setup and the
+  status helper both call (a status call never refuses: both daemons running gives
+  the recorded backend, else Solaar, with `otherRunning` set).
 - **Rules:** one marked block in `rules.yaml` with the rules of every applied
   profile. **Every rule has a `Device` condition** (an `Or` over the profile's
   `names`); no `Model` condition (Solaar 1.1.20 has none). Rules therefore never
@@ -388,9 +427,11 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
 - **Setup scope:** applies profiles for keyboards present in Solaar's
   `config.yaml`, in **two phases**: (1) resolve the profile set (stop Solaar,
   read the saved entries; if none is profiled, start Solaar once so it records
-  the connected keyboards, wait, stop it and read again), (2) write the record,
-  the rules, the helper and the Lua for exactly that set, then divert, restart
-  Solaar and finalise the record, idempotently, with rules before diversion. The
+  the connected keyboards, wait, stop it and read again; `<b>_resolve`), (2) the
+  ordered typed steps of one plan, each atomic: the record (the union of old and
+  new ids), the rules, the helper and the Lua for exactly that set, then divert,
+  then the final record, idempotently, with rules before diversion; **then**
+  Solaar is restarted (the restart is not a plan step, AC60). The
   consent plan lists the profiles it applies; on a fresh install, when Solaar
   has no entry for any profiled keyboard yet, the plan lists all **supported
   keyboards** (with tested/untested) and says setup applies whichever profiles
@@ -410,8 +451,10 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   the recorded backend is a **switch**); no flag and a record: the recorded one
   (the widget's Re-apply never switches); only one installed: that one (OpenLogi
   is shown as "experimental, keys not mapped"); both installed and exactly one
-  running: the running one; both installed and **both running: refuse**, exit 1,
-  "two programs own the receiver; quit one", nothing changes; both installed and
+  running: the running one; both installed and **both running: refuse**, whatever the flag or the record
+  says (`--backend` never overrides it), exit 1,
+  "two programs own the receiver; quit one", nothing changes; a recorded backend
+  that is no longer installed: exit 1, nothing changes; both installed and
   neither running: Solaar, the plan saying why; neither installed: Solaar,
   installed through `omarchy pkg add solaar` as today. Setup **never installs
   OpenLogi** (an AUR build and `sudo` udev rules; the README carries the install
@@ -475,8 +518,13 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   does not turn the icon warning, offers no restore for those rows and is never
   auto-restored (AC55). A backend that is not `usable` says why in words
   from its `problem`. Escape closes the popup, Enter or Space activates a focused button,
-  and single-key shortcuts are named in the tooltips. IPC target and QML module
-  name are `logitech-keys`.
+  and single-key shortcuts (`r` refresh, `s` setup, `k` restore, `t` Start Solaar)
+  are named in the tooltips. The words are honest about what was checked (AC61):
+  "all keys active" only when every key is routed or absent ("All found keys
+  active" when any is absent), "<name>: status unknown" for an unread keyboard,
+  "keys not mapped by OpenLogi" under OpenLogi, "Not active (Solaar stopped)"
+  while the backend is stopped. IPC target and QML module name are
+  `logitech-keys`.
 - **Rename and migration:** new id, display name, repo URL, marker text
   `logitech-keys`, helper names (`logitech-keys-*`). `setup` migrates v0.3
   state: marked `pop-icon-keys` blocks, **and** legacy rules that Solaar's rule
@@ -548,8 +596,9 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
 ## Acceptance Criteria
 
 - **AC1 —** The plugin id is `io.github.poornan.logitech-keys`, display name
-  "Logitech Keys", and the README and install commands use
-  `github.com/poornan/omarchy-logitech-keys`.
+  "Logitech Keys", and the README and every install command in it use
+  `github.com/poornan/omarchy-logitech-keys`; the old repository name appears in
+  the README only in the upgrading-from-v0.3 section (a test checks both).
 - **AC2 —** With only the POP Icon Keys known to Solaar, behaviour matches the
   POP Icon Keys spec AC1–AC18. This includes a fresh install where Solaar has
   no keyboard entry yet (see AC21).
@@ -592,7 +641,9 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   with `solaar show`, the profile format, the action table, a copy-paste masking
   command, the exact local test command, an example validator error, a worked
   diff of the MX profile, the "Test my keyboard" path, and what the PR must
-  contain. It also notes: keycap labels depend on Fn-swap, Solaar may name a cid
+  contain. The example validator error is an `error: profile:` line, the worked
+  diff is a fenced `diff` block, and "Test my keyboard" is a heading inside "Add
+  your keyboard" (a structural test checks each). It also notes: keycap labels depend on Fn-swap, Solaar may name a cid
   differently across versions, releases batch profile PRs (new profile = minor,
   fix = patch), one confirmation covers all keyboards, and rollback is v0.4's own
   uninstall.
@@ -694,7 +745,10 @@ below are therefore AC24 onward.
 - **AC27 —** (OS mode, README) The README states that the keyboards must be in
   **MacOS OS mode** (Solaar "Set OS" = MacOS), that the plugin does not change
   it, and that behaviour in another OS mode is untested. It contains no claim of
-  "Linux mode". Every profile's top-level `osMode` is `"MacOS"` (AC45).
+  "Linux mode": the shipped README and fixtures contain neither "Linux OS mode"
+  nor "Linux mode" (case-insensitive; the plan, the ADRs and the project rules
+  may quote the phrase, an explicit file allowlist in the test). Every profile's
+  top-level `osMode` is `"MacOS"` (AC45).
 - **AC28 —** (OS mode precondition) Before the consent plan, `setup` reads each
   profiled keyboard's OS mode from Solaar read-only (`solaar show`'s "Set OS"
   line or the saved entry; no write, no restart). If the keyboard's mode differs
@@ -702,7 +756,7 @@ below are therefore AC24 onward.
   keyboard, the expected mode and where to change it (Solaar), and continues. It
   never changes the mode and does not block or change the exit code. If the mode
   cannot be read (older Solaar, no line, or the OpenLogi backend, whose API does
-  not expose it), no warning is printed. (Since `osMode` is now required on every
+  not expose it and which is never asked), no warning is printed. (Since `osMode` is now required on every
   profile, the check covers untested profiles too; v0.3 wording limited it to a
   profile with `verified`.)
 - **AC29 —** (MX recorded device data) The MX profile's `modelIds`, `names`,
@@ -729,7 +783,13 @@ below are therefore AC24 onward.
   argument count (exit non-zero, no file); otherwise it writes
   `$XDG_STATE_HOME/logitech-keys/battery/<slug>` atomically (value and epoch
   time), using `~/.local/state` when `XDG_STATE_HOME` is unset or relative. It
-  never writes under `/tmp`. The slug list comes from the profile reader.
+  never writes under `/tmp`. The slug list comes from the profile reader. The
+  file has two lines: the bucket lower bound, then the epoch integer
+  (`<lo>\n<epoch>\n`). The helper snaps a percent to its bucket's lower bound
+  (0 to 9 gives 0, 15 gives 10, 95 and 100 give 90); the rules pass the lower
+  bound already, and a test pins the accepted rows (0, 10, 15, 90, 95, 100) with
+  a content assertion and the round trip: the helper writes bucket 10, status
+  reads it as value 15, source `report`.
 - **AC32 —** (battery status) The status JSON `battery` is null or
   `{value, level, source, at}` per keyboard (`level` may be null; for the Solaar
   backend `source` is `report` or `query`, for OpenLogi `backend`, AC37). The
@@ -747,7 +807,12 @@ below are therefore AC24 onward.
   example "≈15%, 3 h ago") for a report, the exact figure for a query or backend
   figure below 100 (no age; this includes a query that is lower than the report
   and so won, AC32), and "Full?" (not "100%") when only the query or the backend
-  says full or 100; "Battery unknown" for null. The README states the accepted
+  says full or 100; "Battery unknown" for null. The age text is one pure function of
+  the report time and an injected `now`: under a minute (and any future time)
+  "just now", then "N min ago", "N h ago", "N d ago". The tooltips are "The
+  keyboard has not reported its charge yet." for "Full?" and "Waiting for the
+  keyboard's next battery report." for "Battery unknown"; the accessible name of a
+  report is "about 15 percent, 3 hours ago". The README states the accepted
   limitation (D18): a new report arrives soon after fitting batteries, and
   Restore or Refresh does not force one (a keyword test). The widget logic test
   covers each case.
@@ -760,7 +825,9 @@ below are therefore AC24 onward.
   exactly `solaar` and `openlogi`; every backend module provides the Python
   contract (`NAME`, `LABEL`, `EXPERIMENTAL`, `LIVE_KEY_STATE`, `collect`,
   `probe`, `known`, `keyboards`, `restore`, `plan_apply`, `plan_remove`) and every
-  shell file the five lifecycle functions; only `collect` does I/O; `lib/edit.py`
+  shell file the six lifecycle functions (`installed`, `running`, `resolve`, `stop`,
+  `start`, `restart_if_stopped`); each module also has the constant `CAN_START`;
+  only `collect` does I/O; `lib/edit.py`
   is the only command line and takes `--backend <name>`; one executor writes every
   `FileEdit`. A test fails when a backend lacks a member or the registry names an
   unknown backend. The Solaar adapter changes no Solaar behaviour: the POP spec
@@ -773,7 +840,11 @@ below are therefore AC24 onward.
   neither installed, Solaar through `omarchy pkg add solaar`; both installed and
   both running: exit 1 with "two programs own the receiver; quit one" and no
   file, process or record changed. The widget's Re-apply never switches. Setup
-  never installs OpenLogi, and `--yes` installs nothing.
+  never installs OpenLogi, and `--yes` installs nothing. `--backend` does **not**
+  override the both-running refusal (a flag equal to the record is not a switch;
+  both running and no flag also refuses; a recorded backend that is no longer
+  installed exits 1 with nothing changed). One decision verb, `select-backend`,
+  serves setup and the status helper.
 - **AC37 —** (OpenLogi read side) With OpenLogi installed and its agent running,
   status lists every connected inventory device whose `name` exactly equals a
   profile `names` entry or `backends.openlogi.names` entry (a look-alike name, a
@@ -786,13 +857,15 @@ below are therefore AC24 onward.
   (`agent_unavailable`, `version_mismatch` with exit 1), inventory `scanning` or
   `unavailable`, an unknown `schema_version`, output that is not JSON and CLI exit
   2 each give `usable: false` with `problem` `agentUnavailable`,
-  `versionMismatch`, `inventoryNotReady` or `unknownSchema`; the status helper
+  `versionMismatch`, `inventoryNotReady` or `unknownSchema`; so does an `ok: false` envelope whose code is unrecognised or
+  missing; the status helper
   still exits 0 with valid JSON and the widget says what to do. Nothing raises.
 - **AC39 —** (`unsupportedByBackend`) Under OpenLogi every profile key has state
   `unsupportedByBackend` with `reason` `notImplemented`; the widget shows each as
   "Not supported by OpenLogi", dimmed, and neither it nor `absent` turns the icon
-  warning. With `liveKeyState` false no key is `dropped`, `routed` means
-  "configured and the agent is running", no restore button is offered, no
+  warning. With `liveKeyState` false no key is `dropped` and none is ever
+  `routed` in v0.4.0 (the earlier "routed = configured and agent running" meaning
+  is deferred to the writer slice S10), no restore button is offered, no
   auto-restore runs, and `restore` returns no argv. The widget still shows
   battery, connection and the experimental badge. The Hyprland bindings block
   (POP Lock) still applies.
@@ -822,8 +895,8 @@ below are therefore AC24 onward.
   service a switch disabled (it prints `systemctl --user enable --now
   openlogi-agent.service`), and leaves user content byte-identical.
 - **AC43 —** (consent plan, backend) The plan names the backend, the reason, the
-  experimental badge, per keyboard each key as mapped, unsupported by the backend
-  (with the reason) or absent, every daemon action (stop, start, enable, and the
+  experimental badge, per keyboard each key as mapped, "not mapped in this
+  version" (the plan never prints the internal code) or absent, every daemon action (stop, start, enable, and the
   `disable --now` of the OpenLogi service on a switch to Solaar, listed only when
   it will run), for OpenLogi the line that its configuration is not changed, and
   the OS-layout warning (D16: warned and documented, never changed); nothing is shown that setup will not
@@ -867,9 +940,12 @@ below are therefore AC24 onward.
   these keys do nothing"), the icon in its warning state, and no automatic
   restore. `backend.canStart` is true exactly when the backend is installed, not
   running and Solaar (never OpenLogi); the banner then has a **Start Solaar**
-  button, and without `canStart` it says how to start the program. A keyboard
-  state that looks like `dropped` because Solaar is not running is not restored
-  until it runs. Falsifiers: Solaar running (no banner, icon unchanged), Solaar
+  button, and without `canStart` it says how to start the program. While the daemon is stopped the status still lists the saved or profiled
+  keyboards read per device (the per-device `solaar show` works without the
+  daemon): keys that look lost read "Not active (Solaar stopped)", the manual
+  Restore button is hidden or disabled with "Start Solaar first", and nothing is
+  restored until Solaar runs; the icon and the banner show even when
+  hide-when-disconnected is on and no keyboard is listed. Falsifiers: Solaar running (no banner, icon unchanged), Solaar
   not installed (the install copy, no button), OpenLogi not running (no button).
 - **AC50 —** (Start Solaar action) `bin/logitech-keys-start` starts Solaar hidden
   (`setsid -f solaar --window=hide`; `-w, --window {show,hide,only}` verified
@@ -903,9 +979,11 @@ below are therefore AC24 onward.
   block is parsed on its own and its `Model ID:` line (or exact name when the
   model id is all zero) is checked against the profile: a block that does not match
   is treated as not this device, and a selector that returns such a block is
-  ambiguous (restore skips it, AC7). Tested through the Solaar adapter's `collect`
-  allow-list (per-device selectors only), with a selector that returns the POP
-  Icon Keys and a look-alike block. Falsifiers: one `solaar show all` call, a
+  ambiguous (restore skips it, AC7). A saved-entry name that starts with `-` or
+  contains a double quote or a newline is skipped, never used as a selector
+  (AC63). Tested through the Solaar adapter's `collect`
+  allow-list (exact call count and exact argv list, per-device selectors only),
+  with a selector that returns the POP Icon Keys and a look-alike block. Falsifiers: one `solaar show all` call, a
   keyboard found by substring, an ambiguous selector restored.
 - **AC54 —** (truncated or failed output is unknown) A non-zero exit, a timeout or
   empty output from a `solaar show` call never produces `disconnected`,
@@ -924,7 +1002,8 @@ below are therefore AC24 onward.
   Falsifier: an `unknown` keyboard beside a routed one leaves the icon unchanged.
 - **AC56 —** (synthetic truncation fixture) A test builds, in memory, a truncated
   `solaar show` output from the masked recorded POP fixture followed by a second
-  device header and the `UnicodeDecodeError` traceback text (labelled
+  device header (a device whose name contains the selector, as a per-device call can
+  return) and the `UnicodeDecodeError` traceback text (labelled
   `synthetic: built from the recorded POP fixture and the owner's 2026-11-19
   traceback`, never counted as verification), and checks AC53 and AC54 on it: the
   POP block is complete and `routed`, the remainder is unknown. It also covers the
@@ -934,7 +1013,75 @@ below are therefore AC24 onward.
   1.1.20's host-name decoding bug can make plain `solaar show` (all devices) crash,
   that the plugin works around it by querying each keyboard on its own, and that
   the user sees "Unknown" for a keyboard that could not be read. A structural test
-  checks the keywords.
+  checks the keywords, each within its own section.
+
+- **AC58 —** (module isolation and one I/O path) Every module under `lib/` and
+  `lib/backends/` imports on its own under `python3 -I` in a fresh interpreter
+  (a test imports each), so an import cycle cannot hide. The contract types (the
+  battery shape, `Plan` with its typed steps, `FileEdit`) live in the import-free
+  `lib/backends/contract.py`; the key-state enum lives with the status contract in
+  `lib/statuscontract.py`; the registry imports a backend lazily by name;
+  `plan_common` has its own module. Each command-line entry script (`lib/edit.py`,
+  `lib/profiles.py`, `lib/battery.py`) puts its own folder first on `sys.path`
+  before sibling imports, and a test runs each under `-I`. Slice 2's thin runner
+  `lib/status.py` is deleted when the backends serve status, so only a backend's
+  `collect` does I/O, and an adapter test compares the CLI output, not only the
+  builders.
+- **AC59 —** (one writer of the applied record) `lib/applied.py` is the only
+  writer of `applied.json`, through field-level, locked read-modify-write verbs
+  (`applied-update --set switching=<from>:<to> | --clear-switching | --flag
+  openlogi.enabledService=true | --flag openlogi.disabledService=true`) that
+  preserve every other field; `apply` merges into the current record and never
+  replaces it. A test begins a switch, runs an apply, then writes a flag:
+  `switching` and the flags survive. The state-directory path and its removal live
+  in one small module (`lib/statedir.py`), which removes `battery/` first and
+  `applied.json` last; uninstall and `lib/battery.py remove-state` call it.
+- **AC60 —** (ordered plan, pure switch steps) A `Plan` is an ordered list of typed
+  steps (`block`, `record`, `file`, `divert`) with a backup policy per kind
+  (`record`: no `.bak`, no marker); the executor applies them in order, each
+  atomically. Setup's order is record(union), rules block, helper, Lua block,
+  divert, record(final), pinned by a test; the daemon restart happens after the
+  executor returns (the files and the final record are written), never inside the
+  plan. `lib/switch.py::switch_steps(record, from, to, service_state)` is pure: it
+  returns the ordered step ids of a switch and, for a resume, only the remaining
+  ones; bash executes the ids; a Python test pins the list and each resume point.
+  Each backend's bash contract has `<b>_resolve`, and setup calls only namespaced
+  contract functions.
+- **AC61 —** (widget honesty) The icon tooltip and each section line say "all keys
+  active" only when every key is routed or absent ("All found keys active" when
+  any is absent); an unread keyboard reads "<name>: status unknown" with a short
+  phrase per `readProblem` in the tooltip, and the unknown section line ends "If
+  this keeps happening, see Troubleshooting in the README."; under OpenLogi the
+  tooltip reads "Logitech Keys: <n> keyboard(s), keys not mapped by OpenLogi";
+  while the backend is stopped, keys that look lost read "Not active (Solaar
+  stopped)" and manual Restore is hidden or disabled ("Start Solaar first"); the
+  popup stays open after Start Solaar and shows a pending line in place of the
+  button; the single-key shortcut `t` starts Solaar and is named in the tooltip
+  and the README; the battery tooltips and accessible name are as AC33 states;
+  `otherRunning` adds the tooltip line "Both Solaar and OpenLogi are running; quit
+  the one you do not want."; the start helper's failure lines are full sentences
+  (a structural test); a banner carries an accessible name where Qt allows.
+- **AC62 —** (consent plan warnings) The consent plan has a "Warnings" group
+  directly above the prompt: the OS mode, the OpenLogi layout, the service
+  disable, the migration list and a v0.3 leftover under OpenLogi. A switch to
+  OpenLogi leads with "After this, your special keys will do nothing until a later
+  version maps them." and the alternative "To keep key mapping, use Solaar:
+  omarchy pkg add solaar, then setup --backend solaar."; the README says the same
+  in one line. The plan never prints an internal code.
+- **AC63 —** (hostile saved-entry names) A saved `config.yaml` entry name that
+  starts with `-` or contains a double quote or a newline is skipped as a
+  selector (exact argv assertions: no `solaar show` call carries it); a v0.3
+  leftover under an OpenLogi record is only warned about, never edited by setup.
+- **AC64 —** (release readiness) Live check 1 (the battery rules write the state
+  file on a real notification) and live check 6 (a real switch round trip) are
+  preconditions for tagging v0.4.0; until live check 1 is done the README labels
+  the battery rules "unverified until live-checked" (a structural test; the owner
+  removes label and test expectation in the commit that records the check). An
+  owner hardware checkpoint after Slice 5 (branch setup, the six POP key presses,
+  uninstall by hand) does not block the build; the pre-PR smoke item repeats it.
+  The plan records a descope order: first Slice 9.2 (switching), keeping the
+  selection, the refusal and the uninstall of recorded artifacts, with setup
+  refusing a requested backend change with a clear message until v0.5.0.
 
 ## Glossary
 
@@ -962,6 +1109,8 @@ below are therefore AC24 onward.
 | Start Solaar action | `bin/logitech-keys-start`: starts Solaar hidden (`setsid -f solaar --window=hide`), no config change, refuses when it already runs | `verified` | `solaar --help` (`-w, --window {show,hide,only}`); AC50 |
 | unknown | Key state: the backend could not read this keyboard completely (truncated, crashed or timed-out `solaar show`), so its keys are neither routed nor lost. A read fact, unlike `absent` (profile fact) and `unsupportedByBackend` (backend fact); dimmed, never warns, never restored. The section carries `readProblem` | `verified` | Owner finding 2026-11-19 (`solaar show` crash); ADR 0008 |
 | Selector | The argument of `solaar show "<selector>"`: an exact profile name or saved-entry name. Solaar matches it by name substring, so the returned blocks are checked by model id | `verified` | Solaar 1.1.20 behaviour (ADR 0005 Context); ADR 0008 |
+| Typed step | One element of a backend `Plan`: `block`, `record`, `file` or `divert`, each with its own backup policy (`record`: no `.bak`, no marker); the executor applies them in order | `verified` | Plan review round 6 (design W2) |
+| Not active | The widget's word for a key that looks lost while the backend is stopped ("Not active (Solaar stopped)"); the JSON state is still `dropped` | `verified` | Plan review round 6 (UX U-3) |
 | Identity module | `lib/solaarcfg.py`: the one place that matches a Solaar device or saved entry to a profile | `verified` | Plan review (design D1, parallelization P2) |
 
 ## Ambiguity Log
@@ -1019,7 +1168,7 @@ alternative is stated and ruled out by the source named.
 | 43 | The profile field stays named `battery {feature}` (the architect's note offered `batteryFeature`) | `inferable` | orchestrator | One name already in the spec, ADR 0007 and the plan; renaming adds churn for nothing. Reconciled across spec, ADR 0005, 0007, 0008 and the plan. |
 | 44 | `osMode` is a required top-level field and AC28 now checks every profile | `inferable` | architect (defect fix) | The POP profile said `Linux` (wrong, D10) and the field sat inside `verified`, so an untested profile had none. Alternative "keep it in `verified`" ruled out: the precondition warning and the OpenLogi OS-layout warning apply to untested profiles too. AC28, AC45. |
 | 45 | OpenLogi identity is the exact device name only (profile `names` or `backends.openlogi.names`); a CLI exit 2 or non-JSON output is `unknownSchema` | `inferable` | OpenLogi `USAGE.md` | The API exposes no model id and its device ids are opaque, so exact name is the only identity; the problem set is closed (`agentUnavailable`, `versionMismatch`, `inventoryNotReady`, `unknownSchema`) and output the plugin cannot read is the closest. AC37, AC38. |
-| 46 | `liveKeyState` false means no `dropped`, no restore, `routed` = configured and the agent running | `inferable` | OpenLogi docs | No documented OpenLogi API shows key or diversion state (open item 7); claiming "Active" from a live read would be false. AC39. |
+| 46 | `liveKeyState` false means no `dropped`, no restore and (v0.4.0) no `routed` (the earlier "routed = configured and the agent running" clause is deferred to S10, row 66) | `inferable` | OpenLogi docs | No documented OpenLogi API shows key or diversion state (open item 7); claiming "Active" from a live read would be false. AC39. |
 | 47 | OpenLogi's read side uses `openlogi api` only, not `openlogi list` | `inferable` | live check, OpenLogi 0.9.0 | `openlogi list` works without the agent and prints `model_ids`, but has no JSON form (`openlogi list --help` shows only `-h`); parsing its text table is ruled out (fragile, no schema). Consequence: it needs the agent, so on the owner's machine (agent disabled, not running, never started by this work) the backend is `usable: false`, `agentUnavailable`. Identity by model id is possible only if a JSON `list` or a model id in `api devices` appears; flagged in ADR 0008. |
 | 48 | OpenLogi's key writer (S10) is gated on a recorded proof that its Linux build honours keyboard dedicated-key bindings | `inferable` | OpenLogi README, `openlogi api --help` | The README says "Keyboard F-key remapping" is not available on Linux and `openlogi api` has no binding subcommand (bindings live only in the TOML). Alternative "build the TOML writer now" ruled out (row 41). If the check fails, keys stay `unsupportedByBackend` and S10 is dropped. |
 | 49 | Widget shows a stopped backend prominently and offers Start Solaar (new AC49 to AC51) | `requires-stakeholder-input` | human (owner finding, 2026-11-19) | The owner found that closing Solaar's window quits Solaar on Omarchy (no tray), which kills all key routing, and asked the widget to detect `running=false` prominently and offer a Start Solaar action that starts it hidden, with no config change and no consent beyond the click, and the README to say to start it hidden. Inferable details: the flag is `solaar --window=hide` (verified from `solaar --help`, already used by setup's autostart); a status field `backend.canStart` (true for Solaar only) keeps the button decision out of the widget; OpenLogi never gets a start button (the plugin starts or stops its agent only in a consented switch); auto-restore does not run while the backend is stopped. |
@@ -1030,6 +1179,16 @@ alternative is stated and ruled out by the source named.
 | 54 | Synthetic truncation fixture built in the test from the recorded POP fixture and the traceback text (AC56) | `inferable` | test-fixtures rule: one recorded fixture per profile | Recording the crash is not possible per profile (it depends on another device on the machine); the synthetic fixture is labelled and never counts as verification (AC19). |
 | 55 | README known-issues note on the Solaar host-name bug (AC57) | `inferable` | owner instruction | Documentation of a known upstream bug and the workaround; no behaviour choice. |
 | 56 | D18: which battery figure wins when the keyboard's last report is older than its last connect or a query disagrees? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner chose "Keep last report (Recommended)" over ignoring reports older than the last connect. Rule: the latest report is shown with its age across reconnects and Solaar restarts until a newer report arrives or a direct query returns a **lower** value (then the query value, source `query`); a query equal to or higher never replaces it. **Stated risk the owner accepted:** after new batteries the widget shows the old low value until the keyboard reports again; the README says a new report arrives soon after fitting batteries and Restore/Refresh does not force one. Replaces the "ignore reports older than last connect" rule, so `connected_at` is no longer an input. One function `choose_battery(report, query)` holds the rule. ADR 0007, AC32, AC33. Numbering of the criteria is unchanged. |
+| 57 | Module layout after plan review round 6: an import-free `lib/backends/contract.py`, the enum with `lib/statuscontract.py`, `lib/solaarshow.py`, a lazy registry, `lib/statedir.py`, a thin Slice 2 runner deleted in Slice 7 (AC58) | `inferable` | plan review (design B1, B2, W5 to W8) | The only way to remove the import cycle and the second I/O path that the design reviewer found without changing behaviour; alternatives (keep one big `lib/status.py`, put the types in `lib/backends/__init__.py`) rejected as the cause of both findings. |
+| 58 | One writer of `applied.json`, field-level locked verbs, `apply` merges (AC59) | `inferable` | plan review (design B3) | Several writers (setup, switching, uninstall, the executor) with whole-record writes would lose `switching` or the service flags; one module with read-modify-write verbs is the smallest fix. |
+| 59 | Typed plan steps, the daemon restart after the executor, pure `switch_steps`, `<b>_resolve` (AC60) | `inferable` | plan review (design W1 to W3) | Restart after the executor means the final record describes files already written; a failed start leaves a complete install and a clear message. The earlier "restart, then finalise the record" order is dropped. |
+| 60 | Stopped Solaar: the status still lists saved or profiled keyboards read per device; keys that look lost read "Not active (Solaar stopped)"; manual Restore hidden (AC49, AC61) | `inferable` | plan review (acceptance, UX U-3); Solaar behaviour (per-device `show` works without the daemon) | Making AC49 reachable (the earlier visibility row hid the icon exactly when the banner is needed) and not telling the user keys are "Lost" when the cause is that Solaar is stopped. |
+| 61 | `--backend` does not override the both-running refusal; a flag equal to the record is not a switch; a record naming an uninstalled backend exits 1 (AC36) | `inferable` | plan review (acceptance) | Two daemons owning a receiver is unsafe whatever the flag says; the refusal is the one safe rule. The owner may override. |
+| 62 | A v0.3 leftover under an OpenLogi record is only warned about by setup; uninstall still removes both generations through the Solaar adapter (AC63) | `inferable` | plan review (design W9) | Legacy artifacts are Solaar artifacts; editing Solaar's files during an OpenLogi setup would break the "OpenLogi writes nothing" rule. |
+| 63 | Hostile saved-entry names (leading `-`, a double quote, a newline) are skipped as selectors (AC63) | `inferable` | plan review (acceptance) | Skipping is smaller and safer than passing `--` or quoting; the keyboard is then still found by its profile names. |
+| 64 | Widget and plan copy changes of the UX review (AC61, AC62) | `inferable` | plan review (UX U-1 to U-7) | Honesty about what was checked (never "all keys active" for an unread or unmapped keyboard), a way out of the unknown dead end, plain words instead of internal codes. |
+| 65 | Release preconditions and the descope order (AC64) | `inferable` | plan review (strategic) | Live checks 1 and 6 cannot be done by the build, so they gate the tag, not the merge; the descope order names what to cut first if the schedule slips. The owner may override. |
+| 66 | OpenLogi's "routed = configured and the agent running" meaning is deferred (AC39, row 46) | `inferable` | plan review (acceptance) | Under OpenLogi v0.4.0 no key is ever routed, so the clause could never be tested; it returns with the writer slice S10. |
 
 ## Consistency Gate
 
@@ -1059,9 +1218,12 @@ amended, glossary terms `unknown` and Selector, rows 51–55, and the D17
 confirmation quote added to row 38; and after the battery decision of
 2026-11-19: D18 resolved in row 56, the freshness rule replaced by "keep the last
 report unless a query is lower", the Battery architecture text, AC32 and AC33
-amended and row 34 annotated).
-Mechanical checks of this pass: every AC id AC1–AC57 appears once as a heading
-entry; each of AC35–AC57 is referenced by a plan criterion; every ADR and row
+amended and row 34 annotated; and after plan-review round 6 of 2026-11-19: AC1,
+AC9, AC27, AC28, AC31, AC33, AC35, AC36, AC38, AC39, AC43, AC49, AC53 and AC56
+amended, AC58–AC64 added, the Modules, Backend seam, Status, Widget and Selection
+text amended, glossary terms Typed step and Not active, rows 57–66).
+Mechanical checks of this pass: every AC id AC1–AC64 appears once as a heading
+entry; each of AC35–AC64 is referenced by a plan criterion; every ADR and row
 cited exists. **Open stakeholder questions: none.** Q1 to Q3 are D15 to D17
 (rows 37–39) and D18 is row 56; rows 13, 15, 22–28 and 40–50 remain overridable by the owner. Live
 checks only the owner can run are listed in ADR 0008.
