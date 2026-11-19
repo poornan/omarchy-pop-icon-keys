@@ -30,7 +30,11 @@ human): a switch to Solaar disables the OpenLogi service on consent (built and
 sandbox-tested); `keep_os_layout` is never changed; v0.4.0 ships OpenLogi
 read-only and its battery reading is cited as prior art. The live OpenLogi 0.9.0
 outputs and the finding that closing Solaar's window quits Solaar added AC49–AC52
-and rows 47–50; the gate was re-run.
+and rows 47–50; the gate was re-run. **Solaar crash pass, 2026-11-19:** the owner
+ran plain `solaar show` and it crashes on this machine partway (a `UnicodeDecodeError`
+in `get_host_names` while printing the MX Master 4), so the Solaar backend queries
+one device at a time, treats truncated output as `unknown`, and AC53–AC57 and rows
+51–55 were added (ADR 0005, 0008); the gate was re-run.
 
 ## Intent Description
 
@@ -82,6 +86,13 @@ Concretely:
    Solaar's window quits Solaar on Omarchy (no tray), which silently kills all key
    routing, so the widget says so prominently and offers a Start Solaar action
    (AC49 to AC51).
+
+10. **A status that survives a crashing `solaar show`.** On the owner's machine
+    plain `solaar show` (all devices) crashes before it reaches the MX Keys for
+    Mac, so status and restore query each profiled device by exact selector,
+    verify every returned block's identity, and show a keyboard they could not
+    read completely as **unknown**, never as disconnected or not set up (AC53 to
+    AC57).
 
 Everything the POP Icon Keys spec requires (AC1–AC18 there) keeps holding for
 the POP Icon Keys profile under the Solaar backend.
@@ -198,9 +209,11 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   <name>`; one executor in `lib/fileedit.py` writes every `FileEdit` (atomic,
   backup on change, dry-run diffs, marker checks, once for all backends). Python
   contract per backend: constants `NAME`, `LABEL`, `EXPERIMENTAL`,
-  `LIVE_KEY_STATE`; `collect(run, paths)` (the **only** function that does I/O;
+  `LIVE_KEY_STATE`; `collect(run, paths, profiles)` (the **only** function that does I/O;
   `run(argv, timeout)` is injected and a fixed read-only argv allow-list applies:
-  `solaar show all`, reading `config.yaml` and the battery state files; or
+  `solaar show "<selector>"` with one exact selector per profiled device (never
+  `solaar show all`, which can crash on this machine), reading `config.yaml` and
+  the battery state files; or
   `openlogi api status` and `openlogi api devices`); `probe(raw)`;
   `known(raw, profiles)`; `keyboards(raw, profiles, applied, now)`;
   `restore(sections)` (an argv list, never a file write); `plan_apply(...)` and
@@ -240,8 +253,13 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   Keys"` would match "MX Keys for Mac", "MX Keys Mini" and "MX Keys S". Solaar
   stores the device name in `_modelId` when the model id is all zero, so a
   saved entry whose `_modelId` is not twelve hex digits is matched on that value
-  as a name. Status reads `solaar show all`, splits it per device block and
-  checks each block's `Model ID:` line. Restore addresses the keyboard by the
+  as a name. Status queries each profiled device by exact selector
+  (`solaar show "<name>"`; never `solaar show all`, AC53), parses every returned
+  device block on its own and checks its `Model ID:` line (or its exact name when
+  the model id is all zero); because Solaar still matches the selector by name
+  substring, a block whose identity is not the profile's is treated as not this
+  device. The selectors are the profile `names` and the names of saved
+  `config.yaml` entries matched to the profile by model id. Restore addresses the keyboard by the
   matched block's exact printed name and skips a keyboard whose selector is
   ambiguous (that name is contained in another device block's name).
 - **Status:** `lib/status.py` parses the two diversion lines per key exactly
@@ -254,7 +272,17 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   backend when its daemon also runs; `canStart` is true only when the backend is
   installed, not running and can be started without consent: Solaar (hidden, AC50),
   never OpenLogi. Key state is `routed`, `dropped`, `notSetUp`,
-  `absent` or `unsupportedByBackend`. For the Solaar backend it comes from the
+  `absent`, `unsupportedByBackend` or `unknown`. **Truncated output** (AC54): a
+  non-zero exit, a timeout or empty output from a `solaar show` call means the
+  devices not yet printed were not read. A device block is complete when the next
+  device header follows it or the call exited 0; the block being printed at the
+  failure is incomplete. Complete blocks parse normally. A profiled keyboard known
+  to Solaar (a saved `config.yaml` entry matches it) that was not read completely
+  has every key `unknown` and its section a `readProblem` (`solaarCrashed`,
+  `timeout` or `noOutput`; null otherwise); `unknown` is dimmed, does not count
+  toward the warning, and is never restored. It is never reported as disconnected
+  or not set up. A `no device found matching` reply is a clean "not present" (no
+  section). For the Solaar backend it comes from the
   live line and the saved line: live diverted with saved diverted is `routed`;
   live diverted with saved regular or not listed is `notSetUp`; live regular
   with saved diverted is `dropped`; regular in both or one line only is
@@ -271,7 +299,9 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   restore. Names are resolved through the injected key table
   by cid where one is available. `keyboards` are sorted by slug, `keys` are in
   profile order, `battery` is null or `{value, level, source, at}`
-  (see **Battery**; `level` may be null). A keyboard that is paired but
+  (see **Battery**; `level` may be null; the report's freshness rule is one function,
+  `report_is_fresh(report_at, connected_at)`, so that its pending owner decision,
+  ADR 0007, is a one-line change). A keyboard that is paired but
   offline is not listed. The bash helper `bin/logitech-keys-status` only runs it
   and always exits 0 with valid JSON.
 - **Rules:** one marked block in `rules.yaml` with the rules of every applied
@@ -432,7 +462,10 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   these keys do nothing"), the icon warns, auto-restore does not run, and when
   `backend.canStart` is true the banner has a **Start Solaar** button that runs
   `bin/logitech-keys-start` (hidden start, no config change, no consent beyond the
-  click; AC49 to AC51). A backend that is not `usable` says why in words
+  click; AC49 to AC51). A keyboard whose status could not be read completely
+  (`unknown` keys) shows its rows as "Unknown" and one section line saying so,
+  does not turn the icon warning, offers no restore for those rows and is never
+  auto-restored (AC55). A backend that is not `usable` says why in words
   from its `problem`. Escape closes the popup, Enter or Space activates a focused button,
   and single-key shortcuts are named in the tooltips. IPC target and QML module
   name are `logitech-keys`.
@@ -845,6 +878,46 @@ below are therefore AC24 onward.
   and backend figures and asserting the state directory is byte-identical, and by
   a source check that only the helper opens that path for writing. The ADR 0007
   note on OpenLogi's battery code is the stated prior art.
+- **AC53 —** (per-device queries, never `solaar show all`) Status and restore for
+  the Solaar backend run `solaar show "<selector>"` once per profiled device, with
+  an exact selector taken from the profile's `names` and from saved `config.yaml`
+  entries matched to it by model id, and run no other `solaar` command except
+  restore's `solaar config`; `solaar show all` is never run. Each returned device
+  block is parsed on its own and its `Model ID:` line (or exact name when the
+  model id is all zero) is checked against the profile: a block that does not match
+  is treated as not this device, and a selector that returns such a block is
+  ambiguous (restore skips it, AC7). Tested through the Solaar adapter's `collect`
+  allow-list (per-device selectors only), with a selector that returns the POP
+  Icon Keys and a look-alike block. Falsifiers: one `solaar show all` call, a
+  keyboard found by substring, an ambiguous selector restored.
+- **AC54 —** (truncated or failed output is unknown) A non-zero exit, a timeout or
+  empty output from a `solaar show` call never produces `disconnected`,
+  `notSetUp` or a missing keyboard for a keyboard Solaar knows: every device block
+  that parsed completely keeps its normal states; a profiled keyboard known to
+  Solaar that was not read completely has every key `unknown` and a `readProblem`;
+  `no device found matching` is "not present" (no section). `unknown` never counts
+  toward the warning and is never restored. Falsifiers: a truncated output after a
+  complete POP block (POP keeps its states, the unread keyboard is `unknown`), a
+  timeout with a saved entry (`unknown`), a timeout with no saved entry (no
+  section), a clean `no device found` (no section).
+- **AC55 —** (widget: unknown) The widget shows the `unknown` rows as "Unknown" and
+  the section line "Could not read this keyboard's status. Choose Refresh." (copy
+  table, once, in `Panel.qml`); `unknown` does not turn the icon warning and has no
+  restore action, while a `dropped` key of another keyboard still does.
+  Falsifier: an `unknown` keyboard beside a routed one leaves the icon unchanged.
+- **AC56 —** (synthetic truncation fixture) A test builds, in memory, a truncated
+  `solaar show` output from the masked recorded POP fixture followed by a second
+  device header and the `UnicodeDecodeError` traceback text (labelled
+  `synthetic: built from the recorded POP fixture and the owner's 2026-11-19
+  traceback`, never counted as verification), and checks AC53 and AC54 on it: the
+  POP block is complete and `routed`, the remainder is unknown. It also covers the
+  per-device selectors of the Solaar adapter's `collect` allow-list and a selector
+  returning two blocks (ambiguity).
+- **AC57 —** (README known issue) The README has a known-issues note that Solaar
+  1.1.20's host-name decoding bug can make plain `solaar show` (all devices) crash,
+  that the plugin works around it by querying each keyboard on its own, and that
+  the user sees "Unknown" for a keyboard that could not be read. A structural test
+  checks the keywords.
 
 ## Glossary
 
@@ -870,6 +943,8 @@ below are therefore AC24 onward.
 | osMode | Required top-level profile field: the keyboard's Solaar "Set OS" value the profile assumes (both shipped: `MacOS`); no longer inside `verified` | `verified` | ADR 0008, ADR 0005 amended; owner D10 |
 | canStart | Status field `backend.canStart`: the backend is installed, not running and can be started with no consent (Solaar, hidden; never OpenLogi). It enables the widget's Start Solaar button | `verified` | Owner finding 2026-11-19 (closing Solaar's window quits it); ADR 0008 |
 | Start Solaar action | `bin/logitech-keys-start`: starts Solaar hidden (`setsid -f solaar --window=hide`), no config change, refuses when it already runs | `verified` | `solaar --help` (`-w, --window {show,hide,only}`); AC50 |
+| unknown | Key state: the backend could not read this keyboard completely (truncated, crashed or timed-out `solaar show`), so its keys are neither routed nor lost. A read fact, unlike `absent` (profile fact) and `unsupportedByBackend` (backend fact); dimmed, never warns, never restored. The section carries `readProblem` | `verified` | Owner finding 2026-11-19 (`solaar show` crash); ADR 0008 |
+| Selector | The argument of `solaar show "<selector>"`: an exact profile name or saved-entry name. Solaar matches it by name substring, so the returned blocks are checked by model id | `verified` | Solaar 1.1.20 behaviour (ADR 0005 Context); ADR 0008 |
 | Identity module | `lib/solaarcfg.py`: the one place that matches a Solaar device or saved entry to a profile | `verified` | Plan review (design D1, parallelization P2) |
 
 ## Ambiguity Log
@@ -919,7 +994,7 @@ alternative is stated and ruled out by the source named.
 | 35 | Swappable backend now: Solaar or OpenLogi (D13) | `requires-stakeholder-input` | human (B) | Owner: "use swappble dependency either solaar or openlogi"; chose "Swappable backend now" over Solaar-now/backend-later, trial-first or shrink. **Resolved by the owner; specified in [ADR 0008](../adr/0008-swappable-input-backend.md) (accepted) and AC35–AC48.** Solaar is the tested reference and OpenLogi ships read-only and experimental in v0.4.0 (rows 40–41). |
 | 36 | Install OpenLogi (D14) | `requires-stakeholder-input` | human (B) | Owner: "install OpenLogi ... Check OpenLogi for installation details". Install note only: AUR `openlogi`, then `sudo udevadm control --reload && sudo udevadm trigger` and `systemctl --user enable --now openlogi-agent.service`; the owner runs the sudo steps; the plugin never installs it and the `curl | sh` installer is not used (marketplace baseline). |
 | 37 | D15 (was Q1): during an explicit switch to Solaar, may setup run `systemctl --user disable openlogi-agent.service` (a service the owner's OpenLogi install enabled, not this plugin)? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner answered **yes, with consent** (summarised in the instruction that recorded it; the quote is not stored verbatim). Built: on a switch to Solaar, when the service is enabled, the plan lists `systemctl --user disable --now openlogi-agent.service` with the reason and setup runs it only on `y`; sandbox-tested with a logging `systemctl` stub, never on the real machine. Uninstall still never re-enables it (it prints the command); `disabledService` is recorded. Replaces the earlier default of "print the command only". AC41, AC42, AC43, AC48; ADR 0008. |
-| 38 | D17 (was Q2): ship v0.4.0 with OpenLogi read-only, or wait for the writer (S10)? How should battery be read? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner: "or we can refer how they read battery and reproduce on ours". Verified in OpenLogi's source (master): it uses the same HID++ UnifiedBattery `0x1004` `getStatus` and status event 0 with Solaar's byte layout (`crates/openlogi-hidpp/src/feature/unified_battery.rs`), re-reads on every inventory poll (`.../inventory/cache.rs`), never restores a saved reading (`persist.rs`) and handles the battery broadcast (`replay_tests.rs`, `battery_broadcast_refresh`); there is no special command and `openlogi list` showed the same stale 100 % for the POP. So "reproduce on ours" is ADR 0007 as designed (capture the broadcast with Solaar rules, the query as fallback, never persist a query as truth: AC52). The release decision is thereby answered: **ship v0.4.0 with OpenLogi read-only and experimental; the writer (S10) is v0.5.0.** AC32, AC37 to AC39, AC48, AC52; ADR 0007, ADR 0008. |
+| 38 | D17 (was Q2): ship v0.4.0 with OpenLogi read-only, or wait for the writer (S10)? How should battery be read? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner: "or we can refer how they read battery and reproduce on ours"; asked whether that meant reproducing OpenLogi's battery method through ADR 0007, OpenLogi read-only and experimental in v0.4.0 and fully supported in v0.5.0, the owner confirmed: "yes, that's what I meant". Verified in OpenLogi's source (master): it uses the same HID++ UnifiedBattery `0x1004` `getStatus` and status event 0 with Solaar's byte layout (`crates/openlogi-hidpp/src/feature/unified_battery.rs`), re-reads on every inventory poll (`.../inventory/cache.rs`), never restores a saved reading (`persist.rs`) and handles the battery broadcast (`replay_tests.rs`, `battery_broadcast_refresh`); there is no special command and `openlogi list` showed the same stale 100 % for the POP. So "reproduce on ours" is ADR 0007 as designed (capture the broadcast with Solaar rules, the query as fallback, never persist a query as truth: AC52). The release decision is thereby answered: **ship v0.4.0 with OpenLogi read-only and experimental; the writer (S10) is v0.5.0.** AC32, AC37 to AC39, AC48, AC52; ADR 0007, ADR 0008. |
 | 39 | D16 (was Q3): under OpenLogi, should setup write `keep_os_layout=off` through `openlogi api os-layout --set off --save`? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner answered **not in v0.4.0: warn and document only**; the plugin never changes `keep_os_layout`. The plan warns and the README documents that it may move a keyboard out of MacOS mode on connect and break `SUPER + CTRL + Q`. AC43, AC27. |
 | 40 | LogiOps (`logid`) as a third backend | `requires-stakeholder-input` | orchestrator on the feasibility report; owner may override | Considered and **deferred**, not built: no battery feature, `Keypress`-only actions (it would need a keysym plus a Hyprland bind indirection), a root-owned `/etc/logid.cfg` and a system service that need `sudo` (conflicts with the consent and no-sudo baseline), last release 2024-09. The backend interface stays open to a future keypress-indirection backend. `.dev-team-reports/logiops-feasibility-2026-11-19.md`; ADR 0008, Considered options. |
 | 41 | OpenLogi is experimental and read-only in v0.4.0; the writer (chord bridge) is designed but not built | `inferable` | architect, on the OpenLogi docs | Alternative "write OpenLogi's TOML now" ruled out by the 13 open items in ADR 0008 (Linux keyboard diversion unconfirmed; `control:0x<cid>` spelling; which device entry is which keyboard; reload and lock behaviour), and by strict TOML where one bad field stops the whole file loading. AC37–AC39, AC48. |
@@ -932,6 +1007,11 @@ alternative is stated and ruled out by the source named.
 | 48 | OpenLogi's key writer (S10) is gated on a recorded proof that its Linux build honours keyboard dedicated-key bindings | `inferable` | OpenLogi README, `openlogi api --help` | The README says "Keyboard F-key remapping" is not available on Linux and `openlogi api` has no binding subcommand (bindings live only in the TOML). Alternative "build the TOML writer now" ruled out (row 41). If the check fails, keys stay `unsupportedByBackend` and S10 is dropped. |
 | 49 | Widget shows a stopped backend prominently and offers Start Solaar (new AC49 to AC51) | `requires-stakeholder-input` | human (owner finding, 2026-11-19) | The owner found that closing Solaar's window quits Solaar on Omarchy (no tray), which kills all key routing, and asked the widget to detect `running=false` prominently and offer a Start Solaar action that starts it hidden, with no config change and no consent beyond the click, and the README to say to start it hidden. Inferable details: the flag is `solaar --window=hide` (verified from `solaar --help`, already used by setup's autostart); a status field `backend.canStart` (true for Solaar only) keeps the button decision out of the widget; OpenLogi never gets a start button (the plugin starts or stops its agent only in a consented switch); auto-restore does not run while the backend is stopped. |
 | 50 | Real OpenLogi fixtures use `openlogi fixture` where it fits; the synthetic ones stay labelled until then | `inferable` | live check, `openlogi fixture --help` | OpenLogi ships privacy-safe fixture tooling (`record case|profile`, `verify`, `contribute`). Whether its format can feed the contract tests directly is unsettled (ADR 0008); until the owner records real ones the synthetic fixtures stay labelled `synthetic: doc-derived USAGE.md @9ca7ef0` and never count as verification. |
+| 51 | Solaar's plain `solaar show` crashes on the owner's machine, so status and restore must not rely on it (AC53) | `requires-stakeholder-input` | human (owner finding, 2026-11-19) | The owner ran plain `solaar show` and it raised `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe2 in position 13` in `logitech_receiver/hidpp20.py:2078` `get_host_names` (called from `solaar/cli/show.py:326`) while printing the MX Master 4, after the POP Icon Keys and before the Unifying receiver; exit non-zero. `solaar show "POP Icon Keys"` and `solaar show "MX Keys for Mac"` work. Alternatives: keep one `solaar show all` and tolerate partial output (rejected: the MX Keys for Mac, the very device we need, is printed after the crash); patch or wrap Solaar (rejected: not ours, and not on other machines). Decision: one `solaar show "<selector>"` per profiled device. ADR 0005, 0008. |
+| 52 | Per-device selectors still match by substring, so each block's identity is verified and a mismatching block is not-this-device and makes the selector ambiguous (AC53) | `inferable` | ADR 0005 identity rule, Solaar behaviour | The plausible alternative "trust the exact selector" is ruled out by the recorded Solaar fact (a selector matches any device whose name contains it). The selector list is the profile `names` plus saved entries matched by model id, so a keyboard whose printed name differs is still queried. |
+| 53 | Truncated, crashed or timed-out output is `unknown`, a sixth key state with a `readProblem`; not disconnected, not set up, not counted toward the warning, never restored (AC54, AC55) | `requires-stakeholder-input` | human (owner finding, same instruction, 2026-11-19) | Decided in the instruction that recorded the owner's finding (summarised, the quote is not stored verbatim): devices not yet printed are "unknown", never disconnected or not set up, and the widget shows it. Inferable details: only a keyboard known to Solaar (a saved entry) is shown as unknown (the plugin cannot claim a keyboard exists on a failed call); a device block is complete when the next header follows it or the call exited 0; `no device found matching` is a clean "not present". The alternative of reusing `absent` is ruled out: it means "the keyboard does not report this cid", a profile fact. |
+| 54 | Synthetic truncation fixture built in the test from the recorded POP fixture and the traceback text (AC56) | `inferable` | test-fixtures rule: one recorded fixture per profile | Recording the crash is not possible per profile (it depends on another device on the machine); the synthetic fixture is labelled and never counts as verification (AC19). |
+| 55 | README known-issues note on the Solaar host-name bug (AC57) | `inferable` | owner instruction | Documentation of a known upstream bug and the workaround; no behaviour choice. |
 
 ## Consistency Gate
 
@@ -954,9 +1034,13 @@ field name `battery` reconciled across spec, ADR 0005, 0007, 0008 and the plan;
 and after the owner-decisions pass of 2026-11-19: D15 to D17 resolved in rows
 37–39 (the former "defaults in force" replaced), the live OpenLogi 0.9.0 outputs,
 the Solaar-quits-with-its-window finding, criteria AC49–AC52 added, AC32, AC41,
-AC42, AC43 and AC48 amended, `canStart` and `disabledService` added, rows 47–50).
-Mechanical checks of this pass: every AC id AC1–AC52 appears once as a heading
-entry; each of AC35–AC52 is referenced by a plan criterion; every ADR and row
+AC42, AC43 and AC48 amended, `canStart` and `disabledService` added, rows 47–50;
+and after the Solaar crash pass of 2026-11-19: criteria AC53–AC57 added, Intent
+item 10, the Architecture text for `collect`, identity, status and the widget
+amended, glossary terms `unknown` and Selector, rows 51–55, and the D17
+confirmation quote added to row 38).
+Mechanical checks of this pass: every AC id AC1–AC57 appears once as a heading
+entry; each of AC35–AC57 is referenced by a plan criterion; every ADR and row
 cited exists. **Open stakeholder questions: none.** Q1 to Q3 are D15 to D17
 (rows 37–39); rows 13, 15, 22–28 and 40–50 remain overridable by the owner. Live
 checks only the owner can run are listed in ADR 0008.
