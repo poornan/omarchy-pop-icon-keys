@@ -24,8 +24,13 @@ it, and this spec gained the **Backend seam** section and AC35–AC48 (the gate 
 re-run). In v0.4.0 the Solaar backend is the tested reference and the OpenLogi
 backend is **experimental and read-only**; the OpenLogi key-mapping writer is
 deferred (ADR 0008, "Deferred slice S10"). Owner decisions D1–D14 are in the
-Ambiguity Log; three questions (Q1–Q3) remain open with defaults in force (rows
-37–39).
+Ambiguity Log. **Owner decisions pass, 2026-11-19:** the three open questions are
+answered (D15 to D17, rows 37–39, `requires-stakeholder-input`, resolved by
+human): a switch to Solaar disables the OpenLogi service on consent (built and
+sandbox-tested); `keep_os_layout` is never changed; v0.4.0 ships OpenLogi
+read-only and its battery reading is cited as prior art. The live OpenLogi 0.9.0
+outputs and the finding that closing Solaar's window quits Solaar added AC49–AC52
+and rows 47–50; the gate was re-run.
 
 ## Intent Description
 
@@ -71,7 +76,12 @@ Concretely:
    this version: it detects keyboards, shows battery and backend status, and
    reports every key as unsupported by the backend; the plugin never writes
    OpenLogi's configuration. Switching backend is one consent-gated run that
-   can be interrupted and resumed.
+   can be interrupted and resumed; a switch to Solaar also disables the OpenLogi
+   service on consent (D15), so it does not retake the receiver at login.
+9. **A visible, one-click answer when the backend is not running.** Closing
+   Solaar's window quits Solaar on Omarchy (no tray), which silently kills all key
+   routing, so the widget says so prominently and offers a Start Solaar action
+   (AC49 to AC51).
 
 Everything the POP Icon Keys spec requires (AC1–AC18 there) keeps holding for
 the POP Icon Keys profile under the Solaar backend.
@@ -134,7 +144,8 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   is untested. Setup reads the setting without changing it (AC28). OpenLogi's
   `keep_os_layout` (default on) may move a keyboard out of MacOS mode when its
   agent connects; the plugin cannot read the layout through OpenLogi's API, so
-  the consent plan warns and the README documents it (Q3).
+  the consent plan warns and the README documents it (D16: never changed by the
+  plugin, not in v0.4.0).
 - **Action table** `lib/actions.json` maps an action id to an argument list or
   a plugin helper (`show-desktop`, `app-launcher`, `dictation`, `emoji-picker`,
   `region-screenshot`, `lock`, `calculator`). It is the single place commands
@@ -217,6 +228,12 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   `notImplemented` (after the deferred writer, `unverified` until
   `backends.openlogi.verified` lists the cid). `restore` returns `[]`.
   The Hyprland bindings block (POP Lock) still applies under either backend.
+  **Read-side source (decision):** `openlogi list` works without the agent and
+  prints `model_ids`, but it has no JSON form (live check, OpenLogi 0.9.0), so it
+  is never parsed and `collect` uses `openlogi api` only; with the agent disabled
+  and not running (the owner's state) the backend is `usable: false`,
+  `agentUnavailable`. Identity by model id for OpenLogi becomes possible only if a
+  JSON `list` or a model id in `api devices` appears (ADR 0008, unsettled list).
 - **Identity:** a keyboard matches a profile by exact model id, then by exact
   name, in the one identity module (the Solaar backend; OpenLogi matches by exact
   name only). Never by substring: `solaar show/config "MX
@@ -231,10 +248,12 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   (key-name suffix pairs such as "Search" / "MultiPlatform Search" are handled
   by cid, not by substring) and prints JSON: a `schema` field (1), a `backend`
   block `{name, experimental, installed, running, usable, problem, liveKeyState,
-  otherRunning}` and one section per connected profiled keyboard (`slug`, `name`,
+  otherRunning, canStart}` and one section per connected profiled keyboard (`slug`, `name`,
   `tested`, `connected`, `identity`, `battery`, `keys` with `cid`, label, state
   and an optional `reason`, and `bindings`). `otherRunning` names the other
-  backend when its daemon also runs. Key state is `routed`, `dropped`, `notSetUp`,
+  backend when its daemon also runs; `canStart` is true only when the backend is
+  installed, not running and can be started without consent: Solaar (hidden, AC50),
+  never OpenLogi. Key state is `routed`, `dropped`, `notSetUp`,
   `absent` or `unsupportedByBackend`. For the Solaar backend it comes from the
   live line and the saved line: live diverted with saved diverted is `routed`;
   live diverted with saved regular or not listed is `notSetUp`; live regular
@@ -282,8 +301,17 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   that file: `battery` is `{value, level, source, at}` with `source` `report`
   (from the file) or `query` (from `solaar show`); the OpenLogi backend adds
   `backend` (the daemon's cached figure from `openlogi api devices`, read at
-  `at`; its freshness is unverified, so the widget treats it like a query
-  figure). It prefers a report newer than the
+  `at`; it is a fresh read, not necessarily a fresh device value, so the widget
+  treats it like a query figure). **Persistence rule (D17):** only keyboard
+  reports are persisted, and only `bin/logitech-keys-battery` writes the battery
+  state directory; a query or backend figure is shown with its source and is
+  never written there, so it cannot later be read back as a report. **Prior
+  art:** OpenLogi (source, master) reads the same HID++ UnifiedBattery `0x1004`
+  `getStatus` and status event 0 with Solaar's byte layout, re-reads on every poll,
+  never restores a saved reading and handles the battery broadcast (ADR 0007);
+  `openlogi list` showed the same stale 100 % for the POP, and there is no
+  special battery command, so this design is the "reproduce it on ours" the owner
+  asked for. It prefers a report newer than the
   keyboard's last connect, else the query value with source `query`. For a
   report `value` is the bucket's midpoint (`lo` + 5, so 10–19 shows "≈15%"); for
   the query it is the exact figure. The widget shows "≈15%" with the report's
@@ -304,7 +332,7 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   "switching": null|{"from","to"}, "profiles": [{slug, ids, names, modelIds}],
   "artifacts": {"solaar": {"entries", "rulesBlock", "batteryRules",
   "autostartBlock"}, "hypr": {"bindingsBlock"}, "openlogi": {"entries",
-  "enabledService"}}}` (v0.4.0 is unreleased, so this is schema 1 itself, with no
+  "enabledService", "disabledService"}}}` (v0.4.0 is unreleased, so this is schema 1 itself, with no
   migration; `entries` maps each slug to the matched names) where `names` and
   `modelIds` are the matched saved entries, so
   `uninstall` works without the profile file and still resets a profile whose
@@ -354,23 +382,27 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   `switching` set; (2) stop the old daemon; (3) the old backend's `plan_remove`
   (Solaar: reset the recorded cids in `config.yaml` while stopped, remove the
   rules block with its key and battery rules and the Solaar autostart block);
-  (4) the old autostart that conflicts: **by default setup does not run
-  `systemctl --user disable` on a service this plugin did not enable; the plan
-  prints the command for the user and warns that OpenLogi may retake the receiver
-  at next login** (Q1, row 37); (5) start the new daemon (OpenLogi: `systemctl --user enable` the service
+  (4) the old backend's autostart that conflicts (D15, row 37): on a switch **to
+  Solaar**, when the OpenLogi service is enabled, setup runs `systemctl --user
+  disable --now openlogi-agent.service`; the plan lists it with the reason
+  (OpenLogi would retake the receiver at next login) and it runs **only on y**
+  (a disabled service is neither touched nor listed; `disabledService` is
+  recorded as true); (5) start the new daemon (OpenLogi: `systemctl --user enable` the service
   first if it is not enabled and record `enabledService: true`, so uninstall
   disables only what the plugin enabled); (6) the new backend's
   `plan_apply`; (7) write the record with the new backend and `switching: null`.
-  A failure before step 5 restarts the old daemon (the exit trap); a re-run sees
-  `switching` and finishes the switch. **Uninstall** removes the artifacts of
+  A failure before step 5 restarts the old daemon (the exit trap; an OpenLogi agent
+  is restarted with `systemctl --user start` and stays disabled); a re-run sees
+  `switching` and finishes the switch. Declining runs no `systemctl` call. **Uninstall** removes the artifacts of
   every backend recorded (a half-finished switch included), the Hyprland blocks,
   the state directory (battery files included), the helpers and the record; it
   restarts only a daemon it stopped, disables only a service it enabled, never
-  uninstalls packages and never re-enables the other backend (it prints the
-  command). The consent plan adds: the backend, the reason it was chosen and an
+  uninstalls packages and never re-enables the other backend, including a service
+  a switch disabled (it prints `systemctl --user enable --now
+  openlogi-agent.service`). The consent plan adds: the backend, the reason it was chosen and an
   experimental badge; per keyboard each key as mapped, "unsupported by
   <backend>" with the reason, or absent; every daemon action (stop, start,
-  enable, disable) and the printed `disable` command; for OpenLogi a line that its
+  enable, and `disable --now` on a switch to Solaar); for OpenLogi a line that its
   configuration is not changed; a warning about OpenLogi's OS-layout default; and
   the OS mode precondition warning (AC28).
 - **Hyprland bindings:** one marked Lua block, command resolved from the action
@@ -386,7 +418,7 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   its profile may not match the model or Solaar version, with the issue address.
   It warns if any keyboard has keys in `dropped` or `notSetUp`, and the tooltip
   lists the affected keyboards. Failures say what to do (restore failed names the
-  key; Solaar not running says how to start it; unreadable status; an unknown
+  key; unreadable status; an unknown
   status schema says to reload the shell). "Re-apply setup (all keyboards)" opens
   a terminal running `setup` and shows a pending line until the next status
   read; "Restore (lost keys only)" restores per keyboard. Auto-restore works per
@@ -394,7 +426,13 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   `unsupportedByBackend` key row reads "Not supported by <backend>" (dimmed, not
   a warning); an experimental backend carries a badge ("experimental, keys not
   mapped" for OpenLogi); when `otherRunning` is set the popup warns that both
-  programs own the receiver. A backend that is not `usable` says why in words
+  programs own the receiver. **A backend that is installed but not running is
+  shown prominently** (closing Solaar's window quits Solaar on Omarchy, which
+  kills all key routing): a banner leads the popup ("Solaar is not running, so
+  these keys do nothing"), the icon warns, auto-restore does not run, and when
+  `backend.canStart` is true the banner has a **Start Solaar** button that runs
+  `bin/logitech-keys-start` (hidden start, no config change, no consent beyond the
+  click; AC49 to AC51). A backend that is not `usable` says why in words
   from its `problem`. Escape closes the popup, Enter or Space activates a focused button,
   and single-key shortcuts are named in the tooltips. IPC target and QML module
   name are `logitech-keys`.
@@ -450,13 +488,17 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   and battery; status `agent_unavailable` and `version_mismatch` with exit 1;
   `schema_version` 2; CLI exit 2); they never count as verification. The sandbox
   adds stubs on `PATH` for `openlogi` (a fixture per test) and `systemctl` (it
-  refuses anything except `--user` on the one unit and logs every call) beside
+  refuses anything except `--user` `is-active`, `is-enabled`, `cat`, `start`,
+  `stop`, `enable` and `disable` (with or without `--now`) on the one unit, keeps
+  the unit's enabled state in a sandbox file and logs every call) beside
   the `pgrep`, `solaar`, `hyprctl` and `setsid` stubs; a guard fails the run if a
   stub is missing, so OpenLogi is never started or stopped for real. Sandbox
   cases: the selection matrix; a switch round trip Solaar to OpenLogi to Solaar
   with Solaar's files byte-identical apart from backups and the stub log showing
-  the stop and start order; a switch interrupted at the agent start; uninstall
-  mid-switch. No schema-migration machinery (schema change =
+  the stop and start order; a switch to Solaar with the service enabled, where the
+  log shows `disable --now` only after `y`, only on a switch to Solaar and never
+  on decline; a switch interrupted at the agent start; uninstall mid-switch; the
+  start helper (Solaar stub and `setsid` stub, nothing written). No schema-migration machinery (schema change =
   one commit, profiles live in the repo).
 - **Constraints:** unchanged from v0.3 (consent, marked blocks, atomic writes,
   Solaar stopped while writing `config.yaml`, marketplace baseline: no
@@ -653,7 +695,7 @@ below are therefore AC24 onward.
   connect wins and has `source` `report` and `value` = bucket lower bound + 5;
   otherwise the `solaar show` figure is used with `source` `query`; no data
   gives null. Tests cover the owner's case (report 15, query 100) and a missing
-  or damaged battery file.
+  or damaged battery file. A query or backend figure is never persisted (AC52).
 - **AC33 —** (battery widget) The popup shows "≈15%" with the report's age for a
   report, the exact figure for a query or backend figure below 100, and "Full?"
   (not "100%") when only the query or the backend says 100; "Battery unknown" for
@@ -715,20 +757,26 @@ below are therefore AC24 onward.
   byte-identical to before apart from backups, and the `systemctl` stub log shows
   the stop and start order. A failure before the new daemon starts restarts the
   old one and leaves `switching` set; re-running setup finishes the switch.
-  **Q1 default:** setup does not run `systemctl --user disable` on a service the
-  plugin did not enable; the plan prints that command and warns that OpenLogi may
-  retake the receiver at next login; a service the plugin enabled is recorded
-  (`enabledService`) and uninstall disables only that.
+  **D15 (owner: yes, with consent):** on a switch to Solaar, when the OpenLogi
+  service is enabled, the plan lists `systemctl --user disable --now
+  openlogi-agent.service` with the reason and setup runs it only on `y` (declining
+  runs no `systemctl` call; a service already disabled is not touched or listed),
+  after the old daemon is stopped and before Solaar starts; the sandbox `systemctl`
+  stub log proves the order and the `y` gate; `disabledService` is recorded. A
+  service the plugin enabled on a switch to OpenLogi is recorded
+  (`enabledService`); uninstall disables only that and never re-enables.
 - **AC42 —** (uninstall across backends) Uninstall removes the artifacts of every
   backend recorded, including a half-finished switch (`switching` set), the
   Hyprland blocks, the state directory and the record; it restarts only a daemon
-  it stopped, never uninstalls a package, never re-enables the other backend (it
-  prints the command), and leaves user content byte-identical.
+  it stopped, never uninstalls a package, never re-enables the other backend or a
+  service a switch disabled (it prints `systemctl --user enable --now
+  openlogi-agent.service`), and leaves user content byte-identical.
 - **AC43 —** (consent plan, backend) The plan names the backend, the reason, the
   experimental badge, per keyboard each key as mapped, unsupported by the backend
-  (with the reason) or absent, every daemon action (stop, start, enable, disable)
-  and the printed `disable` command, for OpenLogi the line that its configuration
-  is not changed, and the OS-layout warning; nothing is shown that setup will not
+  (with the reason) or absent, every daemon action (stop, start, enable, and the
+  `disable --now` of the OpenLogi service on a switch to Solaar, listed only when
+  it will run), for OpenLogi the line that its configuration is not changed, and
+  the OS-layout warning (D16: warned and documented, never changed); nothing is shown that setup will not
   do. Declining still exits 0 with no change.
 - **AC44 —** (applied record, backend) The record has `backend`, `switching` and
   per-backend `artifacts` as the Architecture Specification states; setup, switch
@@ -756,11 +804,47 @@ below are therefore AC24 onward.
 - **AC48 —** (OpenLogi never written) In v0.4.0 no code path writes
   `~/.config/openlogi/config.toml` or anything under `~/.config/systemd/user/`
   except the consented `enable` of the OpenLogi service during a switch to
-  OpenLogi (AC41); a test checksums the sandbox OpenLogi config and unit folder
-  before and after setup, status, restore, switch and uninstall and fails on a
-  difference other than that `enable`. `CLAUDE.md` forbids stopping or restarting
-  the developer's OpenLogi agent in tests and reviews and allows only the
+  OpenLogi and the consented `disable --now` during a switch to Solaar (AC41); a
+  test checksums the sandbox OpenLogi config and unit folder before and after
+  setup, status, restore, switch and uninstall and fails on a difference other
+  than those two (the unit's enabled state in the stub); the real
+  `systemctl` is never called by any test (a missing stub fails the run). `CLAUDE.md` forbids stopping, starting,
+  enabling or disabling the developer's OpenLogi agent in tests and reviews and allows only the
   read-only `openlogi api status` and `openlogi api devices`.
+- **AC49 —** (backend not running, widget and status) When the active backend is
+  installed but not running, `backend.running` is false and the widget shows it
+  prominently: a banner leading the popup in words ("Solaar is not running, so
+  these keys do nothing"), the icon in its warning state, and no automatic
+  restore. `backend.canStart` is true exactly when the backend is installed, not
+  running and Solaar (never OpenLogi); the banner then has a **Start Solaar**
+  button, and without `canStart` it says how to start the program. A keyboard
+  state that looks like `dropped` because Solaar is not running is not restored
+  until it runs. Falsifiers: Solaar running (no banner, icon unchanged), Solaar
+  not installed (the install copy, no button), OpenLogi not running (no button).
+- **AC50 —** (Start Solaar action) `bin/logitech-keys-start` starts Solaar hidden
+  (`setsid -f solaar --window=hide`; `-w, --window {show,hide,only}` verified
+  from `solaar --help` on 1.1.20), changes no configuration file, writes nothing,
+  asks nothing beyond the widget click, exits 0 when it started it, and exits
+  non-zero with a one-line reason when Solaar is already running or not installed
+  (no second instance). The widget shows a pending line until the next status
+  read and the failure line if it exits non-zero. Tested in the sandbox with the
+  `solaar` and `setsid` stubs; the files' checksums are unchanged.
+- **AC51 —** (README: start Solaar hidden) The README says that closing Solaar's
+  window quits Solaar on Omarchy (no tray) and stops all key routing, tells the
+  user to start it hidden (`solaar --window=hide`, which `setup` also puts in
+  autostart) and to leave it running, and mentions the widget's Start Solaar
+  button. A structural test pins the flag text against `solaar --help` on the dev
+  machine and the autostart line.
+- **AC52 —** (battery persistence, D17) Only keyboard battery reports are
+  persisted: `bin/logitech-keys-battery` is the only writer of
+  `$XDG_STATE_HOME/logitech-keys/battery/`, and the status code, the restore
+  helper and the OpenLogi backend never write there. A `solaar show` figure
+  (source `query`) and an `openlogi api devices` figure (source `backend`) are
+  shown with their source and never stored as the persisted truth, so a stale
+  query cannot be read back later as a report. Tested by running status with query
+  and backend figures and asserting the state directory is byte-identical, and by
+  a source check that only the helper opens that path for writing. The ADR 0007
+  note on OpenLogi's battery code is the stated prior art.
 
 ## Glossary
 
@@ -784,6 +868,8 @@ below are therefore AC24 onward.
 | otherRunning | Status field: the other backend's daemon also runs, so both own the receiver; the widget warns | `verified` | ADR 0008; `INSTALL-linux.md` (only one application owns a receiver) |
 | Switching record | `switching: {from, to}` in `applied.json`, written before a backend switch begins and cleared at the end, so an interrupted switch can be finished or uninstalled | `verified` | ADR 0008 |
 | osMode | Required top-level profile field: the keyboard's Solaar "Set OS" value the profile assumes (both shipped: `MacOS`); no longer inside `verified` | `verified` | ADR 0008, ADR 0005 amended; owner D10 |
+| canStart | Status field `backend.canStart`: the backend is installed, not running and can be started with no consent (Solaar, hidden; never OpenLogi). It enables the widget's Start Solaar button | `verified` | Owner finding 2026-11-19 (closing Solaar's window quits it); ADR 0008 |
+| Start Solaar action | `bin/logitech-keys-start`: starts Solaar hidden (`setsid -f solaar --window=hide`), no config change, refuses when it already runs | `verified` | `solaar --help` (`-w, --window {show,hide,only}`); AC50 |
 | Identity module | `lib/solaarcfg.py`: the one place that matches a Solaar device or saved entry to a profile | `verified` | Plan review (design D1, parallelization P2) |
 
 ## Ambiguity Log
@@ -832,9 +918,9 @@ alternative is stated and ruled out by the source named.
 | 34 | Accurate battery: use the keyboard's own battery notifications (D11) | `requires-stakeholder-input` | human (B, 2026-11-19) | Owner chose battery from Solaar's own reports ("Read Solaar's own log"). The log gets no DEBUG lines (`solaar/gtk.py` sets INFO/WARNING for the temp log), so it is implemented with Solaar rules on battery notifications. ADR 0007, AC30–AC34. Inferable details (alternative ruled out by the Solaar source in ADR 0007): 10 % buckets, helper writes a state file, "Full?" instead of a confident 100 %. Known limit: a report older than the keyboard's last connect is ignored, so after a reconnect the figure falls back to the query until the next report; the widget shows the report's age so staleness is visible. |
 | 35 | Swappable backend now: Solaar or OpenLogi (D13) | `requires-stakeholder-input` | human (B) | Owner: "use swappble dependency either solaar or openlogi"; chose "Swappable backend now" over Solaar-now/backend-later, trial-first or shrink. **Resolved by the owner; specified in [ADR 0008](../adr/0008-swappable-input-backend.md) (accepted) and AC35–AC48.** Solaar is the tested reference and OpenLogi ships read-only and experimental in v0.4.0 (rows 40–41). |
 | 36 | Install OpenLogi (D14) | `requires-stakeholder-input` | human (B) | Owner: "install OpenLogi ... Check OpenLogi for installation details". Install note only: AUR `openlogi`, then `sudo udevadm control --reload && sudo udevadm trigger` and `systemctl --user enable --now openlogi-agent.service`; the owner runs the sudo steps; the plugin never installs it and the `curl | sh` installer is not used (marketplace baseline). |
-| 37 | Q1: during an explicit switch to Solaar, may setup run `systemctl --user disable openlogi-agent.service` (a service the owner's OpenLogi install enabled, not this plugin)? | `requires-stakeholder-input` | **open**; default applied by the orchestrator, owner may override | Architect recommends yes. **Default in force: no.** Setup does not run `disable` on a service the plugin did not enable; the consent plan prints the command and warns that OpenLogi may retake the receiver at next login, so the switch still completes; the code path that runs `disable` is not built. The plugin does `enable` the OpenLogi service on a switch to OpenLogi and records it (`enabledService`); uninstall disables only that. AC41, AC43. |
-| 38 | Q2: if OpenLogi recordings are not ready, ship v0.4.0 with OpenLogi read-only, or wait for the writer (S10)? | `requires-stakeholder-input` | **open**; release decision stays with the owner | Architect recommends shipping read-only, S10 in v0.5.0. Not decided in this pass; the v0.4.0 plan and this spec assume read-only (AC37–AC39, AC48). |
-| 39 | Q3: under OpenLogi, should setup later write `keep_os_layout=off` through `openlogi api os-layout --set off --save`? | `requires-stakeholder-input` | **open**; default applied by the orchestrator | **Default in force: not in v0.4.0.** The plan warns and the README documents the OS-layout default (it may move a keyboard out of MacOS mode on connect and break `SUPER + CTRL + Q`); decide after the owner's live check. AC43, AC27. |
+| 37 | D15 (was Q1): during an explicit switch to Solaar, may setup run `systemctl --user disable openlogi-agent.service` (a service the owner's OpenLogi install enabled, not this plugin)? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner answered **yes, with consent** (summarised in the instruction that recorded it; the quote is not stored verbatim). Built: on a switch to Solaar, when the service is enabled, the plan lists `systemctl --user disable --now openlogi-agent.service` with the reason and setup runs it only on `y`; sandbox-tested with a logging `systemctl` stub, never on the real machine. Uninstall still never re-enables it (it prints the command); `disabledService` is recorded. Replaces the earlier default of "print the command only". AC41, AC42, AC43, AC48; ADR 0008. |
+| 38 | D17 (was Q2): ship v0.4.0 with OpenLogi read-only, or wait for the writer (S10)? How should battery be read? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner: "or we can refer how they read battery and reproduce on ours". Verified in OpenLogi's source (master): it uses the same HID++ UnifiedBattery `0x1004` `getStatus` and status event 0 with Solaar's byte layout (`crates/openlogi-hidpp/src/feature/unified_battery.rs`), re-reads on every inventory poll (`.../inventory/cache.rs`), never restores a saved reading (`persist.rs`) and handles the battery broadcast (`replay_tests.rs`, `battery_broadcast_refresh`); there is no special command and `openlogi list` showed the same stale 100 % for the POP. So "reproduce on ours" is ADR 0007 as designed (capture the broadcast with Solaar rules, the query as fallback, never persist a query as truth: AC52). The release decision is thereby answered: **ship v0.4.0 with OpenLogi read-only and experimental; the writer (S10) is v0.5.0.** AC32, AC37 to AC39, AC48, AC52; ADR 0007, ADR 0008. |
+| 39 | D16 (was Q3): under OpenLogi, should setup write `keep_os_layout=off` through `openlogi api os-layout --set off --save`? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner answered **not in v0.4.0: warn and document only**; the plugin never changes `keep_os_layout`. The plan warns and the README documents that it may move a keyboard out of MacOS mode on connect and break `SUPER + CTRL + Q`. AC43, AC27. |
 | 40 | LogiOps (`logid`) as a third backend | `requires-stakeholder-input` | orchestrator on the feasibility report; owner may override | Considered and **deferred**, not built: no battery feature, `Keypress`-only actions (it would need a keysym plus a Hyprland bind indirection), a root-owned `/etc/logid.cfg` and a system service that need `sudo` (conflicts with the consent and no-sudo baseline), last release 2024-09. The backend interface stays open to a future keypress-indirection backend. `.dev-team-reports/logiops-feasibility-2026-11-19.md`; ADR 0008, Considered options. |
 | 41 | OpenLogi is experimental and read-only in v0.4.0; the writer (chord bridge) is designed but not built | `inferable` | architect, on the OpenLogi docs | Alternative "write OpenLogi's TOML now" ruled out by the 13 open items in ADR 0008 (Linux keyboard diversion unconfirmed; `control:0x<cid>` spelling; which device entry is which keyboard; reload and lock behaviour), and by strict TOML where one bad field stops the whole file loading. AC37–AC39, AC48. |
 | 42 | One active backend per machine; both running is refused | `inferable` | `INSTALL-linux.md` | "Only one application can own a receiver"; the alternative of a backend per keyboard is ruled out because both keyboards here share one receiver type and two daemons would fight over HID++ access. AC36. |
@@ -842,6 +928,10 @@ alternative is stated and ruled out by the source named.
 | 44 | `osMode` is a required top-level field and AC28 now checks every profile | `inferable` | architect (defect fix) | The POP profile said `Linux` (wrong, D10) and the field sat inside `verified`, so an untested profile had none. Alternative "keep it in `verified`" ruled out: the precondition warning and the OpenLogi OS-layout warning apply to untested profiles too. AC28, AC45. |
 | 45 | OpenLogi identity is the exact device name only (profile `names` or `backends.openlogi.names`); a CLI exit 2 or non-JSON output is `unknownSchema` | `inferable` | OpenLogi `USAGE.md` | The API exposes no model id and its device ids are opaque, so exact name is the only identity; the problem set is closed (`agentUnavailable`, `versionMismatch`, `inventoryNotReady`, `unknownSchema`) and output the plugin cannot read is the closest. AC37, AC38. |
 | 46 | `liveKeyState` false means no `dropped`, no restore, `routed` = configured and the agent running | `inferable` | OpenLogi docs | No documented OpenLogi API shows key or diversion state (open item 7); claiming "Active" from a live read would be false. AC39. |
+| 47 | OpenLogi's read side uses `openlogi api` only, not `openlogi list` | `inferable` | live check, OpenLogi 0.9.0 | `openlogi list` works without the agent and prints `model_ids`, but has no JSON form (`openlogi list --help` shows only `-h`); parsing its text table is ruled out (fragile, no schema). Consequence: it needs the agent, so on the owner's machine (agent disabled, not running, never started by this work) the backend is `usable: false`, `agentUnavailable`. Identity by model id is possible only if a JSON `list` or a model id in `api devices` appears; flagged in ADR 0008. |
+| 48 | OpenLogi's key writer (S10) is gated on a recorded proof that its Linux build honours keyboard dedicated-key bindings | `inferable` | OpenLogi README, `openlogi api --help` | The README says "Keyboard F-key remapping" is not available on Linux and `openlogi api` has no binding subcommand (bindings live only in the TOML). Alternative "build the TOML writer now" ruled out (row 41). If the check fails, keys stay `unsupportedByBackend` and S10 is dropped. |
+| 49 | Widget shows a stopped backend prominently and offers Start Solaar (new AC49 to AC51) | `requires-stakeholder-input` | human (owner finding, 2026-11-19) | The owner found that closing Solaar's window quits Solaar on Omarchy (no tray), which kills all key routing, and asked the widget to detect `running=false` prominently and offer a Start Solaar action that starts it hidden, with no config change and no consent beyond the click, and the README to say to start it hidden. Inferable details: the flag is `solaar --window=hide` (verified from `solaar --help`, already used by setup's autostart); a status field `backend.canStart` (true for Solaar only) keeps the button decision out of the widget; OpenLogi never gets a start button (the plugin starts or stops its agent only in a consented switch); auto-restore does not run while the backend is stopped. |
+| 50 | Real OpenLogi fixtures use `openlogi fixture` where it fits; the synthetic ones stay labelled until then | `inferable` | live check, `openlogi fixture --help` | OpenLogi ships privacy-safe fixture tooling (`record case|profile`, `verify`, `contribute`). Whether its format can feed the contract tests directly is unsettled (ADR 0008); until the owner records real ones the synthetic fixtures stay labelled `synthetic: doc-derived USAGE.md @9ca7ef0` and never count as verification. |
 
 ## Consistency Gate
 
@@ -860,11 +950,13 @@ AC3 and AC19 extended, rows 29–36 logged, owner decisions D1–D14 all recorde
 and after the backend pass: ADR 0008 accepted, the Backend seam section, the
 status contract, selection and switching, criteria AC35–AC48 added, AC19, AC27,
 AC28, AC29, AC32 and AC33 amended, glossary and rows 35–46 updated, the profile
-field name `battery` reconciled across spec, ADR 0005, 0007, 0008 and the plan).
-Mechanical checks of this pass: every AC id AC1–AC48 appears once as a heading
-entry; each of AC35–AC48 is referenced by a plan criterion; every ADR and row
-cited exists. **Open stakeholder questions, none blocking the build:** Q1
-(default: no `disable` of a service the plugin did not enable, the command is
-printed), Q2 (default: v0.4.0 ships OpenLogi read-only; the release decision is the
-owner's) and Q3 (default: `keep_os_layout` is not changed) are rows 37–39; rows
-13, 15, 22–28 and 40–46 remain overridable by the owner.
+field name `battery` reconciled across spec, ADR 0005, 0007, 0008 and the plan;
+and after the owner-decisions pass of 2026-11-19: D15 to D17 resolved in rows
+37–39 (the former "defaults in force" replaced), the live OpenLogi 0.9.0 outputs,
+the Solaar-quits-with-its-window finding, criteria AC49–AC52 added, AC32, AC41,
+AC42, AC43 and AC48 amended, `canStart` and `disabledService` added, rows 47–50).
+Mechanical checks of this pass: every AC id AC1–AC52 appears once as a heading
+entry; each of AC35–AC52 is referenced by a plan criterion; every ADR and row
+cited exists. **Open stakeholder questions: none.** Q1 to Q3 are D15 to D17
+(rows 37–39); rows 13, 15, 22–28 and 40–50 remain overridable by the owner. Live
+checks only the owner can run are listed in ADR 0008.
