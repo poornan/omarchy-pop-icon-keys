@@ -1,0 +1,11 @@
+#!/bin/bash
+# macOS-style Show Desktop for Hyprland: jump to an empty workspace,
+# press again (while still on the empty one) to go back.
+set -euo pipefail
+
+windows=$(hyprctl activeworkspace -j | jq -r '.windows')
+if [[ $windows == 0 ]]; then
+  hyprctl dispatch 'hl.dsp.focus({ workspace = "previous" })' >/dev/null
+else
+  hyprctl dispatch 'hl.dsp.focus({ workspace = "emptym" })' >/dev/null
+fi

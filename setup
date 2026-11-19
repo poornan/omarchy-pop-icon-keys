@@ -1,0 +1,175 @@
+#!/bin/bash
+# Map the Logitech POP Icon Keys top row to Omarchy actions through Solaar.
+# Safe to re-run: every change lives in a marked block that is replaced, not duplicated.
+set -euo pipefail
+
+# shellcheck source=lib.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib.sh"
+
+usage() {
+  cat <<EOF
+Usage: setup [--dry-run] [--yes]
+
+Maps the POP Icon Keys top row through Solaar:
+  F4 Show Desktop  -> empty workspace (press again to return)
+  F5 Search        -> Omarchy app launcher
+  F6 Dictation     -> omarchy-dictation toggle
+  F7 Emoji         -> Omarchy emoji picker
+  F8 Screen Capture-> region screenshot
+  Lock (Fn+last)   -> omarchy-system-lock
+
+  --dry-run, -n   show every change without making it
+  --yes, -y       accept the changes without asking
+EOF
+}
+
+parse_args "$@"
+
+# --- Preflight ---------------------------------------------------------------
+
+for cmd in hyprctl jq python3; do
+  command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not installed"
+done
+
+if ! command -v solaar >/dev/null 2>&1; then
+  say "Solaar is not installed. It is the Logitech device manager that routes the keys."
+  if command -v omarchy-pkg-add >/dev/null 2>&1 && confirm "Install it now with 'omarchy pkg add solaar'?"; then
+    run omarchy-pkg-add solaar
+  else
+    die "install Solaar (omarchy pkg add solaar), then run setup again"
+  fi
+fi
+
+# --- Plan and consent ---------------------------------------------------------
+
+lock_bind_unmarked=0
+if [[ -f $BINDINGS_FILE ]] && ! has_block "$BINDINGS_FILE" "--" \
+  && grep -qE '^[[:space:]]*o\.bind\("SUPER \+ CTRL \+ Q"' "$BINDINGS_FILE"; then
+  lock_bind_unmarked=1
+fi
+
+autostart_unmarked=0
+if [[ -f $AUTOSTART_FILE ]] && ! has_block "$AUTOSTART_FILE" "--" \
+  && grep -qE '^[[:space:]]*[^-[:space:]].*solaar' "$AUTOSTART_FILE"; then
+  autostart_unmarked=1
+fi
+
+say "POP Icon Keys setup will change these files (each is backed up first as <file>.bak.$MARK.<date-time>.<pid>):"
+say "  $RULES_FILE    add the key rules in a marked block"
+say "  $SHOW_DESKTOP    install the Show Desktop helper"
+say "  $SOLAAR_CONFIG    divert the five mapped keys to Solaar (Solaar is restarted)"
+if (( lock_bind_unmarked )); then
+  say "  $BINDINGS_FILE    unchanged: SUPER + CTRL + Q is already bound there"
+else
+  say "  $BINDINGS_FILE    bind the Lock key (SUPER + CTRL + Q) to omarchy-system-lock"
+fi
+if (( autostart_unmarked )); then
+  say "  $AUTOSTART_FILE    unchanged: Solaar already starts at login"
+elif [[ -f $AUTOSTART_FILE ]]; then
+  say "  $AUTOSTART_FILE    start Solaar hidden at login"
+else
+  say "  (no $AUTOSTART_FILE: start Solaar at login yourself)"
+fi
+
+if [[ -f $RULES_FILE ]] && ! has_block "$RULES_FILE" "#" \
+  && grep -qE 'Key: \[(Show Desktop|MultiPlatform Search|Dictation|Emoji|Screen Capture),' "$RULES_FILE"; then
+  warn "$RULES_FILE already has rules for these keys outside this plugin's block."
+  warn "Both would run on each press. Remove the old ones after setup, or keep them and skip setup."
+fi
+
+say ""
+confirm "Apply these changes?" || { say "Nothing changed."; exit 1; }
+(( DRY_RUN )) && say "Dry run: showing the changes, writing nothing."
+
+# --- Show Desktop helper ------------------------------------------------------
+
+run mkdir -p "$BIN_DIR"
+run install -m 755 "$PLUGIN_DIR/bin/pop-icon-keys-show-desktop" "$SHOW_DESKTOP"
+
+# --- Solaar rules -------------------------------------------------------------
+
+run mkdir -p "$SOLAAR_DIR"
+if [[ ! -s $RULES_FILE ]]; then
+  # Solaar reads rules.yaml as a YAML 1.3 multi-document stream.
+  (( DRY_RUN )) || printf '%%YAML 1.3\n' >"$RULES_FILE"
+else
+  backup "$RULES_FILE"
+fi
+
+rules_body=$(cat <<EOF
+# Logitech POP Icon Keys top row -> Omarchy. Managed by the pop-icon-keys plugin;
+# re-running its setup replaces this block, its uninstall removes it.
+---
+# F4 Show Desktop -> empty workspace (press again to return)
+- Key: [Show Desktop, pressed]
+- Execute: [$SHOW_DESKTOP]
+...
+---
+# F5 Search -> Omarchy app launcher
+- Key: [MultiPlatform Search, pressed]
+- Execute: [omarchy-shell, omarchy.dock, apps]
+...
+---
+# F6 Dictation -> Omarchy dictation (same as Alt+Space; follows the chosen backend)
+- Key: [Dictation, pressed]
+- Execute: [omarchy-dictation, toggle]
+...
+---
+# F7 Emoji -> Omarchy emoji picker
+- Key: [Emoji, pressed]
+- Execute: [omarchy-shell, shell, toggle, omarchy.emojis]
+...
+---
+# F8 Screen Capture -> region screenshot
+- Key: [Screen Capture, pressed]
+- Execute: [omarchy-capture-screenshot, region]
+...
+EOF
+)
+write_block "$RULES_FILE" "#" "$rules_body"
+
+# --- Key diversion (persisted in Solaar's config) -----------------------------
+
+backup "$SOLAAR_CONFIG"
+stop_solaar
+status=0
+set_diversion 1 || status=$?
+if (( status == 3 )); then
+  # Solaar has not saved this keyboard yet: let it see the keyboard once, then try again.
+  say "Solaar has no saved entry for \"$DEVICE\" yet; starting it once to record the keyboard."
+  start_solaar
+  sleep 6
+  stop_solaar
+  status=0
+  set_diversion 1 || status=$?
+  (( status == 3 )) && warn "Solaar still has no entry for \"$DEVICE\". Connect the keyboard and run setup again."
+elif (( status != 0 )); then
+  start_solaar
+  die "could not update $SOLAAR_CONFIG"
+fi
+start_solaar
+
+# --- Lock key -----------------------------------------------------------------
+
+if (( ! lock_bind_unmarked )) && [[ -f $BINDINGS_FILE ]]; then
+  backup "$BINDINGS_FILE"
+  write_block "$BINDINGS_FILE" "--" \
+'-- Logitech POP Icon Keys: the Lock key (Fn + last key) sends SUPER + CTRL + Q, the macOS lock shortcut.
+o.bind("SUPER + CTRL + Q", "Lock screen", "omarchy-system-lock")'
+elif [[ ! -f $BINDINGS_FILE ]]; then
+  warn "$BINDINGS_FILE not found; bind SUPER + CTRL + Q to omarchy-system-lock yourself"
+fi
+
+# --- Autostart ------------------------------------------------------------------
+
+if (( ! autostart_unmarked )) && [[ -f $AUTOSTART_FILE ]]; then
+  backup "$AUTOSTART_FILE"
+  write_block "$AUTOSTART_FILE" "--" \
+'-- Solaar in the background routes the POP Icon Keys top row (pop-icon-keys plugin).
+o.launch_on_start("solaar --window=hide")'
+fi
+
+reload_hyprland
+
+say ""
+if (( DRY_RUN )); then say "Dry run complete; nothing was written."; else say "Done. Try F4 to F8 and the Lock key. Settings stay in place after a restart."; fi

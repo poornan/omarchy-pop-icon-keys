@@ -1,0 +1,48 @@
+#!/bin/bash
+# Print the keyboard's state as key=value lines for the bar widget.
+#   installed=0|1  running=0|1  connected=0|1  battery=<0-100 or empty>
+#   diverted=<comma list of the mapped keys Solaar is routing>
+#   missing=<comma list of mapped keys still sending their built-in shortcut>
+set -uo pipefail
+
+DEVICE="POP Icon Keys"
+MAPPED=("Show Desktop" "MultiPlatform Search" "Dictation" "Emoji" "Screen Capture")
+
+if ! command -v solaar >/dev/null 2>&1; then
+  printf 'installed=0\nrunning=0\nconnected=0\nbattery=\ndiverted=\nmissing=\n'
+  exit 0
+fi
+
+running=0
+for pid in $(pgrep -x solaar 2>/dev/null; pgrep -x python3 2>/dev/null; pgrep -x python 2>/dev/null); do
+  if tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -qE '(^|/)solaar( |$)'; then
+    running=1
+    break
+  fi
+done
+
+out=$(timeout 20 solaar show "$DEVICE" 2>/dev/null || true)
+
+connected=0
+battery=""
+diversion=""
+if [[ -n $out ]]; then
+  battery=$(grep -m1 -oE 'Battery: [0-9]+%' <<<"$out" | grep -oE '[0-9]+' || true)
+  diversion=$(grep -m1 -E 'Key/Button Diversion +:' <<<"$out" || true)
+  [[ -n $battery || -n $diversion ]] && connected=1
+fi
+
+diverted=()
+missing=()
+for key in "${MAPPED[@]}"; do
+  if [[ $diversion == *"$key:Diverted"* ]]; then
+    diverted+=("$key")
+  else
+    missing+=("$key")
+  fi
+done
+(( connected )) || missing=()
+
+join() { local IFS=,; echo "$*"; }
+printf 'installed=1\nrunning=%s\nconnected=%s\nbattery=%s\ndiverted=%s\nmissing=%s\n' \
+  "$running" "$connected" "$battery" "$(join "${diverted[@]}")" "$(join "${missing[@]}")"
