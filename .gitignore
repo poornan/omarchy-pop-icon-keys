@@ -1,3 +1,4 @@
-.claude/
+.claude/*
+!.claude/CLAUDE.md
 *.bak*
 __pycache__/
