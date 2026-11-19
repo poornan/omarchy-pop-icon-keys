@@ -99,6 +99,14 @@ Feature: The repository gates keyboard contributions and documents them
     Then it says the keyboards must be in MacOS OS mode (Solaar Set OS), that the plugin does not change it and that other modes are untested
     And it does not contain the phrase Linux OS mode or Linux mode as a recommendation
 
+  Scenario: The README says to start Solaar hidden and not to close its window
+    # Still passes if: the explanation is reworded
+    # test: tests/test_repo.py::readme_start_solaar
+    Given the README
+    Then it says that closing Solaar's window quits Solaar on Omarchy and stops key routing
+    And it gives the command solaar --window=hide, says to leave Solaar running and names the widget's Start Solaar button
+    And the flag in that command is accepted by the installed solaar --help and is the one the setup script uses for autostart
+
   Scenario: The README has an experimental OpenLogi section with an install note and no piped installer
     # Still passes if: the AUR package name is cited with a version
     # test: tests/test_repo.py::readme_openlogi
@@ -116,7 +124,7 @@ Feature: The repository gates keyboard contributions and documents them
 
     Examples:
       | rule                                                                                                  |
-      | never stop or restart the developer's OpenLogi agent in tests or reviews                              |
+      | never start, stop, restart, enable or disable the developer's OpenLogi agent in tests or reviews     |
       | checksum ~/.config/openlogi/config.toml and ~/.config/systemd/user/ before and after a build         |
       | only the read-only openlogi api status and openlogi api devices commands may run on the real machine  |
       | the backend seam: bash is process lifecycle only, Python does file work, OpenLogi is read-only and experimental |

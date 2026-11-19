@@ -109,6 +109,28 @@ Feature: One bar icon shows every connected profiled keyboard, in words
       | installed     | running     | no        | off  | shown   | not requested |
       | installed     | running     | one       | on   | shown   | not requested |
 
+  Scenario Outline: A stopped backend is shown prominently and Solaar can be started with one click
+    # Still passes if: the banner wording changes
+    # test: tests/qml/decisions.json (rows "backend stopped"), tests/qml/shell.qml::backend_stopped_banner, tests/qml_logic.py::pure_decisions
+    Given the status says <backend> installed <installed>, running <running> and canStart <canStart>, with a keyboard whose keys look lost
+    Then the popup <banner>, the icon is <icon>, the Start Solaar button is <button> and automatic restore <auto>
+
+    Examples:
+      | backend  | installed | running | canStart | banner                                                        | icon    | button | auto            |
+      | Solaar   | true      | false   | true     | leads with "Solaar is not running, so these keys do nothing"   | warning | shown  | does not run    |
+      | Solaar   | true      | true    | false    | has no banner                                                  | as before | hidden | follows the setting |
+      | Solaar   | false     | false   | false    | says Solaar is not installed and to re-apply setup             | as before | hidden | does not run    |
+      | OpenLogi | true      | false   | false    | shows the agent problem copy and no Solaar wording             | as before | hidden | does not run    |
+
+  Scenario: Start Solaar runs the helper once, shows a pending line and then the next status
+    # Still passes if: the pending line stays a moment longer
+    # test: tests/qml/shell.qml::start_solaar_action
+    Given the banner shows a Start Solaar button
+    When the button is chosen
+    Then bin/logitech-keys-start runs once and the popup shows "Starting Solaar..." until the next status read
+    And when the helper exits non-zero its line is shown as printed and the button stays available
+    And no setup, no consent prompt and no file write is involved
+
   Scenario Outline: Unreadable or unfamiliar status is reported in words
     # Still passes if: the widget reads the status a little later
     # test: tests/qml/shell.qml::status_errors

@@ -180,7 +180,7 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
     Given a record written for the Solaar backend after setup applied both profiles
     When the record is read back
     Then it has schema 1, the plugin version, backend solaar, switching null and the two profiles with ids, matched names and model ids
-    And its artifacts hold the Solaar entries per slug, the rules block, the battery rules and the autostart block, the Hyprland bindings block, and an empty openlogi entry with enabledService false
+    And its artifacts hold the Solaar entries per slug, the rules block, the battery rules and the autostart block, the Hyprland bindings block, and an empty openlogi entry with enabledService false and disabledService false
 
   Scenario Outline: The switching marker is written before and cleared after a switch
     # Still passes if: the record is indented differently

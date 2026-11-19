@@ -1,10 +1,10 @@
 # Plan: Logitech Keys — keyboard profiles (v0.4.0)
 
-**Created**: 2026-11-19 (rewritten the same day for the architect-reviewed design; revised after the five plan-review personas, see Plan Review Summary; extended the same day for the swappable backend, ADR 0008: slices 1 to 4 amended, slices 7 to 9 added, slices 5 and 6 reworked; "Round 2" in the Plan Review Summary)
+**Created**: 2026-11-19 (rewritten the same day for the architect-reviewed design; revised after the five plan-review personas, see Plan Review Summary; extended the same day for the swappable backend, ADR 0008: slices 1 to 4 amended, slices 7 to 9 added, slices 5 and 6 reworked; "Round 2" in the Plan Review Summary; amended again for the owner's decisions D15 to D17, the live OpenLogi 0.9.0 outputs and the Solaar-quits-with-its-window finding: AC49 to AC52, "Round 3" in the Plan Review Summary)
 **Branch**: feat/logitech-keys-profiles
-**Status**: approved — the owner pre-approved this design ("apply architect must-fix changes"; spec gate PASS after the architect review), so the interactive plan gate is skipped. All five plan-review personas returned needs-revision on the first draft; this revision resolves or explicitly decides every item (Plan Review Summary, Decided list). The backend extension (Round 2) has not been re-reviewed by the five personas yet; they are to be re-run before the build starts. Open owner questions Q1 to Q3 (ADR 0008) have defaults in force and block nothing.
+**Status**: approved — the owner pre-approved this design ("apply architect must-fix changes"; spec gate PASS after the architect review), so the interactive plan gate is skipped. All five plan-review personas returned needs-revision on the first draft; this revision resolves or explicitly decides every item (Plan Review Summary, Decided list). The backend extension (Round 2) has not been re-reviewed by the five personas yet; they are to be re-run before the build starts. There are no open owner questions: Q1 to Q3 are answered as D15 to D17 (ADR 0008, spec rows 37 to 39); the Round 3 amendments have not been re-reviewed by the personas either.
 **Gherkin persistence**: features
-**Spec**: [docs/specs/logitech-keys-profiles.md](../docs/specs/logitech-keys-profiles.md) (48 criteria: AC1–AC22, the spec's AC3a which this plan numbers AC23, and AC24–AC48)
+**Spec**: [docs/specs/logitech-keys-profiles.md](../docs/specs/logitech-keys-profiles.md) (52 criteria: AC1–AC22, the spec's AC3a which this plan numbers AC23, and AC24–AC52)
 **Design review**: `.dev-team-reports/architect-review-2026-11-19.md` (must-fix M1–M9, ADR 0005 additions; "Later" items are README notes only). The spec text fixes of M9 are commit `eff584c` on this branch (checked with `git log`).
 **ADRs**: [0005](../docs/adr/0005-device-profiles-for-other-keyboards.md) (accepted, amended three times), [0006](../docs/adr/0006-rename-to-logitech-keys.md), [0007](../docs/adr/0007-battery-from-keyboard-notifications.md) (battery), [0008](../docs/adr/0008-swappable-input-backend.md) (swappable backend; design `.dev-team-reports/architect-backend-design-2026-11-19.md`)
 
@@ -58,15 +58,18 @@ writer is designed (ADR 0008) but **deferred** (see "Deferred" below).
    real config files (`~/.config/solaar/{rules,config}.yaml`,
    `~/.config/hypr/{bindings,autostart}.lua`) are checksummed before and after the
    whole build, and so are `~/.config/openlogi/config.toml` and the folder
-   `~/.config/systemd/user/`. The developer's OpenLogi agent is never stopped or
-   restarted; only the read-only `openlogi api status` and `openlogi api devices`
+   `~/.config/systemd/user/`. The developer's OpenLogi agent is never started, stopped, restarted,
+   enabled or disabled (the owner's service is installed, disabled and not running,
+   and stays so); only the read-only `openlogi api status` and `openlogi api devices`
    may run against the real machine.
 7. **Backends.** Bash does process lifecycle and the consent prompt only; Python
    does all reading, parsing, identity, planning and file edits, and only a
    backend's `collect` function does I/O (its `run` is injected). OpenLogi is
-   never started, stopped, written or enabled for real by a test: the sandbox
-   puts stubs for `openlogi` and `systemctl` on `PATH` and a guard fails the run
-   if one is missing. Every OpenLogi fixture and stub is labelled `synthetic:
+   never started, stopped, written, enabled or disabled for real by a test (D15 adds
+   a `disable --now` path, built and tested only against the stub): the sandbox
+   puts stubs for `openlogi` and `systemctl` on `PATH`, the `systemctl` stub keeps
+   the unit's enabled state in a sandbox file and logs every call, and a guard
+   fails the run if a stub is missing. Every OpenLogi fixture and stub is labelled `synthetic:
    doc-derived USAGE.md @9ca7ef0` and never counts as verification.
 8. **Disjoint files per wave.** Slice `Files` are exactly the union of its steps'
    `Files`; slices that touch one file are ordered by `Depends-on`, and
@@ -82,19 +85,18 @@ writer is designed (ADR 0008) but **deferred** (see "Deferred" below).
   replaced by the new ones; the old plugin is not patched (ADR 0006, no
   deprecation release: v0.3 was never submitted to the marketplace).
 - **Partial earlier build work** (uncommitted `lib/profiles.py`, `profiles/*.json`,
-  `tests/test_profiles.py`, fixtures, README table, `tests/test_setup.sh` path
-  edit, staged fixture renames): written before the architect review with the old
-  schema (argv in profiles, `tested` boolean, name matching, a profile directory
-  read from an environment variable). Reuse: `BAD_CHARS`/`_text` text hygiene,
-  slug rule, the `config_entries()` parser (moves to `lib/solaarcfg.py`), the
-  fixture directory layout, the MX key list, the README table and the
-  `.gitignore` line. Replace: the schema, validation, matching and fixture set.
-  The build slices own these files; nothing from the old shape is committed as is.
-  Two further corrections: the partial `profiles/pop-icon-keys.json` says
-  `"osMode": "Linux"` inside `verified`, which is wrong (the keyboards run in
-  MacOS mode, D10) and the field moves to the top level (ADR 0005 amended);
-  the partial synthetic MX fixtures (`tests/fixtures/mx-keys-mac/*.txt`) are
-  deleted and replaced by the owner's masked 2026-11-19 recording.
+  `tests/test_profiles.py`, fixtures, README table, `.gitignore`, `tests/test_setup.sh`
+  path edit, staged fixture renames), written before the architect review with
+  the old schema (argv in profiles, `tested` boolean, name matching, a profile
+  directory read from an environment variable). Each file is inspected and
+  marked **REUSED** or **REPLACED**, with the reason, in the table under Slice 1
+  ("Partial uncommitted work"). In short: the reader, the two profiles and the
+  profile tests are **rewritten** to the architect schema (only small helpers
+  and facts carry over); the POP fixtures, the `.gitignore` line and the
+  `tests/test_setup.sh` path edit are **reused**; the synthetic MX fixtures are
+  **replaced** by the masked real recording; the README table is reused in shape
+  and rewritten in Step 6.2 because two lines say "Linux OS mode" (wrong, D10).
+  Nothing from the old shape is committed as is.
 - **Integration:** feature branch, PR to `main` through `/pr`, release tag on
   `main` after merge. Nothing is pushed by the build.
 - **Scope:** the spec. "Later" items (setup-time cid warning, keycap labels vs
@@ -123,8 +125,9 @@ writer is designed (ADR 0008) but **deferred** (see "Deferred" below).
 
 Numbered as in the spec, except that the spec's AC3a carries the plan id AC23
 (the plan tooling wants whole-number ids); the spec says so and its new criteria
-start at AC24; AC27 to AC34 (OS mode, MX data, battery) and AC35 to AC48 (backend)
-were added after the first revision. Ticked at PR review after behavioural verification; traceability
+start at AC24; AC27 to AC34 (OS mode, MX data, battery), AC35 to AC48 (backend) and
+AC49 to AC52 (stopped backend and Start Solaar, README, battery persistence) were
+added after the first revision. Ticked at PR review after behavioural verification; traceability
 to tests is in the tables further down.
 
 - [ ] AC1 Plugin id `io.github.poornan.logitech-keys`, display name "Logitech Keys", README and install commands use `github.com/poornan/omarchy-logitech-keys`
@@ -167,14 +170,18 @@ to tests is in the tables further down.
 - [ ] AC38 OpenLogi unusable states (`ok: false`, scanning, unknown `schema_version`, non-JSON, exit 2) give `usable: false` with a `problem` code, exit 0 and valid JSON, never a crash
 - [ ] AC39 Under OpenLogi every key is `unsupportedByBackend` (`notImplemented`), dimmed, not a warning; `liveKeyState` false means no `dropped`, no restore, `routed` = configured and agent running; the Lock binding still applies
 - [ ] AC40 `otherRunning` names the other backend's running daemon and the popup warns that both own the receiver, without stopping anything
-- [ ] AC41 Switching: one consent and plan, write-ahead `switching`, ordered steps, Solaar files byte-identical after Solaar to OpenLogi to Solaar, interrupted switch restarts the old daemon and a re-run finishes it; Q1 default: no `disable` of a service the plugin did not enable, the command is printed
-- [ ] AC42 Uninstall removes every recorded backend's artifacts (a half-finished switch included), restarts only what it stopped, disables only what it enabled, never uninstalls packages
-- [ ] AC43 The consent plan names the backend, reason, experimental badge, per-key outcomes, every daemon action, the printed `disable` command, the OpenLogi no-change line and the OS-layout warning
+- [ ] AC41 Switching: one consent and plan, write-ahead `switching`, ordered steps, Solaar files byte-identical after Solaar to OpenLogi to Solaar, interrupted switch restarts the old daemon and a re-run finishes it; D15: a switch to Solaar lists `systemctl --user disable --now openlogi-agent.service` in the plan and runs it only on y (stub-tested), after the old daemon stops and before Solaar starts
+- [ ] AC42 Uninstall removes every recorded backend's artifacts (a half-finished switch included), restarts only what it stopped, disables only what it enabled, never uninstalls packages and never re-enables a service a switch disabled (it prints the command)
+- [ ] AC43 The consent plan names the backend, reason, experimental badge, per-key outcomes, every daemon action (including the consented `disable --now` on a switch to Solaar, listed only when it will run), the OpenLogi no-change line and the OS-layout warning (D16: never changed)
 - [ ] AC44 The applied record has `backend`, `switching` and per-backend `artifacts`, is read and written with AC24's robustness, and lets uninstall work without the profile files
 - [ ] AC45 `osMode` is a required top-level profile field from the closed list (checked against Solaar's table); inside `verified` or missing or unknown fails validation
 - [ ] AC46 `backends` is optional and strict (only `openlogi`; `names`; `verified` with `openlogi`, `date`, `keys` subset of cids; a verified block needs a recorded non-synthetic fixture); the shipped profiles have none
 - [ ] AC47 `tests/test_backend_contract.py` runs one suite over both backends; synthetic labelled OpenLogi fixtures; stubs for `openlogi` and `systemctl` with a missing-stub guard; selection matrix, switch round trip, interrupted switch and uninstall mid-switch in the sandbox
-- [ ] AC48 No code path writes OpenLogi's config or `~/.config/systemd/user/` except the consented `enable` during a switch to OpenLogi (checksummed in tests); CLAUDE.md forbids stopping or restarting the real OpenLogi agent and allows only the read-only `api` calls
+- [ ] AC48 No code path writes OpenLogi's config or `~/.config/systemd/user/` except the consented `enable` during a switch to OpenLogi and the consented `disable --now` during a switch to Solaar (checksummed in tests, stub only); CLAUDE.md forbids stopping or restarting the real OpenLogi agent and allows only the read-only `api` calls
+- [ ] AC49 A backend that is installed but not running is shown prominently: a banner in words, the icon warning, no auto-restore; `backend.canStart` is true only for Solaar installed and not running and gives a Start Solaar button (falsifiers: Solaar running, Solaar not installed, OpenLogi not running)
+- [ ] AC50 `bin/logitech-keys-start` starts Solaar hidden (`setsid -f solaar --window=hide`), changes and writes no file, refuses when Solaar already runs or is missing; the widget shows pending and failure lines
+- [ ] AC51 The README says closing Solaar's window quits it on Omarchy (no tray), to start it hidden with `solaar --window=hide` and leave it running, and mentions the Start Solaar button (structural test pins the flag against `solaar --help` on the dev machine)
+- [ ] AC52 Only keyboard battery reports are persisted, only by `bin/logitech-keys-battery`; a `solaar show` or `openlogi api devices` figure is shown with its source and never written to the battery state directory
 
 ## Slices
 
@@ -200,7 +207,22 @@ Every `# test:` comment under a scenario names the test that proves it
 ### Slice 1: Profile schema, action table, the single reader and the identity module
 
 **Depends-on:** none
-**Files:** `lib/actions.json`, `lib/profiles.py`, `lib/solaarcfg.py`, `profiles/pop-icon-keys.json`, `profiles/mx-keys-mac.json`, `tests/test_profiles.py`, `tests/test_fixture_equality.py`, `tests/fixtures_derive.py`, `tests/solaar_table.py`, `tests/solaar_control_1.1.20.json`, `tests/permanent_slugs.txt`, `tests/fixtures/README.md`, `tests/fixtures/pop-icon-keys/show.txt`, `tests/fixtures/mx-keys-mac/show.txt`, `tests/fixtures/mx-keys-mac/routed.txt`, `tests/fixtures/mx-keys-mac/dropped.txt`, `tests/fixtures/mx-keys-mac/not-setup.txt`
+**Files:** `lib/actions.json`, `lib/profiles.py`, `lib/solaarcfg.py`, `profiles/pop-icon-keys.json`, `profiles/mx-keys-mac.json`, `tests/test_profiles.py`, `tests/test_fixture_equality.py`, `tests/fixtures_derive.py`, `tests/solaar_table.py`, `tests/solaar_control_1.1.20.json`, `tests/permanent_slugs.txt`, `tests/fixtures/README.md`, `tests/fixtures/pop-icon-keys/show.txt`, `tests/fixtures/pop-icon-keys/routed.txt`, `tests/fixtures/pop-icon-keys/dropped.txt`, `tests/fixtures/pop-icon-keys/not-setup.txt`, `tests/fixtures/mx-keys-mac/show.txt`, `tests/fixtures/mx-keys-mac/routed.txt`, `tests/fixtures/mx-keys-mac/dropped.txt`, `tests/fixtures/mx-keys-mac/not-setup.txt`, `tests/test_setup.sh`, `.gitignore`
+
+**Partial uncommitted work: reused or replaced, file by file.** Inspected with `git status`, `git diff` and by reading each file on 2026-11-19. The earlier build agent wrote these before the architect review; the tree is at `e2f339f`-plus-ADR/spec commits with these files uncommitted (the three fixture renames are staged). The plan commits nothing from the old shape as is.
+
+| Partial file (state) | Decision | Reason | Where it lands |
+|---|---|---|---|
+| `lib/profiles.py` (untracked, 244 lines) | **REPLACED** (rewritten) | Old schema: `solaarNames`, single `modelId`, `tested` boolean, `cap`, argv `command`, `hyprBindings`, profile folder from `LK_PROFILE_DIR`, names matched by equality only, `known()` reads a path. Architect M1, M3, M8 need `modelIds`/`names`, action ids, derived `tested`, strict reader, injected paths. Only small pieces carry over: `BAD_CHARS` and the `_text()` hygiene helper, the slug regex, the sorted-listing and JSON-error skeleton of `load_all`, the exit code 4 and `error: profile:` message of the command line | Steps 1.1 to 1.3 and 1.5 |
+| `profiles/pop-icon-keys.json` (untracked) | **REPLACED** | Old fields and `"osMode": "Linux"` inside `verified`, which is wrong (D10). Facts reused: display name, the five keys and cids (110, 212, 259, 264, 266), the Lock chord `SUPER + CTRL + Q`, label wording | Step 1.1 |
+| `profiles/mx-keys-mac.json` (untracked) | **REPLACED** | Old fields, `modelId` singular, no `modelIds`, `osMode`, `battery` or `note`, argv commands. Facts reused: the four keys and cids (225, 191, 111, 10) | Step 1.1 |
+| `tests/test_profiles.py` (untracked, 141 lines) | **REPLACED** | Checks three fixtures per profile, a README row, the `tested` boolean, `solaarNames`. Reused: the `check()` counter and the `refused()` mutation helper shape, the pinned POP pairs and the MX id set as test cases | Steps 1.1 to 1.5 |
+| `tests/fixtures/README.md` (untracked) | **REPLACED** | Describes three recorded fixtures per profile, says "Linux OS mode" and that the MX set is synthetic; the rule is now one recorded fixture plus derived variants | Step 1.4 |
+| `tests/fixtures/mx-keys-mac/routed.txt`, `dropped.txt`, `not-setup.txt` (untracked) | **REPLACED** (deleted) | Hand-written synthetic variants; the owner's masked recording replaces them (`show.txt`) and variants are derived | Step 1.4 |
+| `tests/fixtures/pop-icon-keys/routed.txt`, `dropped.txt`, `not-setup.txt` (staged renames of `solaar-show-*.txt`) | **REUSED** unchanged | `routed.txt` is a real masked `solaar show` of the owner's POP (first line `solaar version 1.1.20`); the other two are the v0.3 recordings. `show.txt` is a byte copy of `routed.txt` (the one recorded fixture); the three files stay as the equality reference until Step 5.4 deletes them | Step 1.4 (committed with the renames), Step 5.4 |
+| `tests/test_setup.sh` (modified, one line) | **REUSED** | The v0.3 status-helper section reads `tests/fixtures/pop-icon-keys/$case.txt` instead of `solaar-show-$case.txt`; correct for the new layout and must be committed with the renames so every commit stays green. Later slices (2, 5, 9) edit the same file after Slice 1 | Step 1.4 |
+| `README.md` (modified, `Supported keyboards` table) | **REUSED in shape, REPLACED in content, committed in Step 6.2 only** | The section and table shape stay. Two stale lines: row POP says "Linux OS mode" (line 15, wrong, D10) and the MX row says "drafted from Solaar's key table" (now: device data recorded from hardware, key presses untested); line 68 says "The keyboard on its **Linux** OS mode". Slices 1 to 5 do not read the README (their tests are not coupled to it), so it stays uncommitted until Step 6.2 rewrites it | Step 6.2 |
+| `.gitignore` (modified, `.dev-team-reports/`) | **REUSED** | Correct as is (the reports stay out of git) | Step 1.4 |
 
 **Behavior:**
 
@@ -511,17 +533,17 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
 #### Step 1.4: Recorded fixtures, masking and derived variants
 
 **Complexity**: standard
-**IMPLEMENT**: One fixture per profile: `tests/fixtures/pop-icon-keys/show.txt` (the recorded POP output, first line `solaar version 1.1.20`, masked) and `tests/fixtures/mx-keys-mac/show.txt` (**the owner's masked 2026-11-19 recording**, copied from `.dev-team-reports/mx-keys-mac-recorded-2026-11-19.txt` (uncommitted; the original masked file is `recorded.txt` in the orchestrator's scratchpad; never the unmasked `raw.txt`; if both are gone, ask the owner to re-record with the README masking command). Its first line is a header comment `# solaar 1.1.20 - recorded 2026-11-19 on owner hardware (...)` that carries the Solaar version, followed by Solaar's own `solaar version 1.1.20`; it is a **recorded** fixture, not synthetic, and it is **not** edited except for masking. **Delete the partial synthetic MX files** `tests/fixtures/mx-keys-mac/routed.txt`, `dropped.txt` and `not-setup.txt`). `tests/fixtures_derive.py` derives the routed, dropped and not-set-up variants from the profile and the fixture (command line: `fixtures_derive.py <slug> routed|dropped|not-setup`; also importable). `tests/fixtures/README.md` rewritten to the one-recorded-plus-derived rule. The old variant files (`routed.txt`, `dropped.txt`, `not-setup.txt`) stay until Step 5.4 because the v0.3 `tests/test_setup.sh` still reads them; `tests/test_fixture_equality.py` asserts the derived POP variants equal them byte for byte, so the equivalence is automated, not a one-off hand comparison (the partial synthetic MX variants are deleted in this step).
+**IMPLEMENT**: Commit the staged renames of the v0.3 recordings (`tests/fixtures/pop-icon-keys/routed.txt`, `dropped.txt`, `not-setup.txt`, **reused unchanged**) together with the existing one-line `tests/test_setup.sh` path edit and the `.gitignore` line (**reused**), so the tree stays green. One fixture per profile: `tests/fixtures/pop-icon-keys/show.txt` (a byte copy of the recorded `routed.txt`: the recorded POP output, first line `solaar version 1.1.20`, masked) and `tests/fixtures/mx-keys-mac/show.txt` (**the owner's masked 2026-11-19 recording**, copied from `.dev-team-reports/mx-keys-mac-recorded-2026-11-19.txt` (uncommitted; the original masked file is `recorded.txt` in the orchestrator's scratchpad; never the unmasked `raw.txt`; if both are gone, ask the owner to re-record with the README masking command). Its first line is a header comment `# solaar 1.1.20 - recorded 2026-11-19 on owner hardware (...)` that carries the Solaar version, followed by Solaar's own `solaar version 1.1.20`; it is a **recorded** fixture, not synthetic, and it is **not** edited except for masking. **Delete the partial synthetic MX files** `tests/fixtures/mx-keys-mac/routed.txt`, `dropped.txt` and `not-setup.txt`). `tests/fixtures_derive.py` derives the routed, dropped and not-set-up variants from the profile and the fixture (command line: `fixtures_derive.py <slug> routed|dropped|not-setup`; also importable). `tests/fixtures/README.md` rewritten to the one-recorded-plus-derived rule. The old variant files (`routed.txt`, `dropped.txt`, `not-setup.txt`) stay until Step 5.4 because the v0.3 `tests/test_setup.sh` still reads them; `tests/test_fixture_equality.py` asserts the derived POP variants equal them byte for byte, so the equivalence is automated, not a one-off hand comparison (the partial synthetic MX variants are deleted in this step; the file list names them so the deletion is part of this commit). The masked MX recording is already masked (serial and unit ids `00000000`, `Device path : None`), but the masking test still runs on it.
 **TEST**: Each profile has a fixture; the first line carries a Solaar version (a leading `#` recording header counts when it holds `solaar <version>`) and, for a `verified` profile, equals `verified.solaar`; the fixture's `Set OS` line equals the profile's `osMode` and the MX fixture shows the `BATTERY STATUS` feature, codename `MX Keys Mac`, model id `B36140920000` and `Set OS: MacOS`; no synthetic MX variant file exists; serial numbers and unit ids are `00000000`; no MAC address pattern (six hex pairs with colons or dashes) and no `/dev/hidraw` or `hid` device path; the model id equals one of the profile's `modelIds`; a synthetic fixture never accompanies a `verified` profile; the recorded POP fixture has zero absent keys (every profile key in at least one diversion line); derived variants have the stated states; derived POP variants equal the v0.3 files.
 **REFACTOR**: Share the diversion-line rewriter between `fixtures_derive.py` and the tests (no duplicate regex).
-**Files**: `tests/fixtures_derive.py`, `tests/fixtures/README.md`, `tests/fixtures/pop-icon-keys/show.txt`, `tests/fixtures/mx-keys-mac/show.txt`, `tests/fixtures/mx-keys-mac/routed.txt`, `tests/fixtures/mx-keys-mac/dropped.txt`, `tests/fixtures/mx-keys-mac/not-setup.txt`, `tests/test_fixture_equality.py`, `tests/test_profiles.py`
+**Files**: `tests/fixtures_derive.py`, `tests/fixtures/README.md`, `tests/fixtures/pop-icon-keys/show.txt`, `tests/fixtures/pop-icon-keys/routed.txt`, `tests/fixtures/pop-icon-keys/dropped.txt`, `tests/fixtures/pop-icon-keys/not-setup.txt`, `tests/fixtures/mx-keys-mac/show.txt`, `tests/fixtures/mx-keys-mac/routed.txt`, `tests/fixtures/mx-keys-mac/dropped.txt`, `tests/fixtures/mx-keys-mac/not-setup.txt`, `tests/test_setup.sh`, `.gitignore`, `tests/test_fixture_equality.py`, `tests/test_profiles.py`
 **Covers**: AC5, AC19, AC29
 **Commit**: `Record one fixture per profile and derive the variants`
 
 #### Step 1.5: The identity module and the reader's command line
 
 **Complexity**: standard
-**IMPLEMENT**: `lib/solaarcfg.py` is the **only** place that decides which profile a Solaar device belongs to. `config_entries(text)` parses `config.yaml` into entries `{name (_NAME), model_id (_modelId), first, last}` with line spans for later edits (it keeps the partial work's parser, handles CRLF and block or flow style, and treats a top-level non-device item as a boundary); Solaar stores the device **name** in `_modelId` when the model id is all zero, so an entry whose `_modelId` is not twelve hex digits is matched on that value as a name. `match_device(profiles, model_id, name)` returns the profile or None: exact model id first, then exact name; never a substring. `known(profiles, config_text)` returns `[(profile, [entries])]` using `match_device` (every Bluetooth and Bolt entry of one keyboard). `ambiguous(selector, other_names)` is the shared test for "this name is contained in another device's name". Reader command line for bash and the status helper: `profiles.py validate [dir]` and `profiles.py list [dir]` (`<slug>\t<displayName>\t<tested 0|1>`); a broken profile exits 4 naming the file. Slices 2 and 4 import `solaarcfg` read-only; nothing else defines matching.
+**IMPLEMENT**: `lib/solaarcfg.py` is the **only** place that decides which profile a Solaar device belongs to. `config_entries(text)` parses `config.yaml` into entries `{name (_NAME), model_id (_modelId), first, last}` with line spans for later edits (it **replaces** the partial `config_entries()` in `lib/profiles.py`, which returned `(name, model)` pairs without spans and ignored flow style; the partial regexes for `- _NAME:` and `_modelId:` are the starting point; it handles CRLF and block or flow style, and treats a top-level non-device item as a boundary); Solaar stores the device **name** in `_modelId` when the model id is all zero, so an entry whose `_modelId` is not twelve hex digits is matched on that value as a name. `match_device(profiles, model_id, name)` returns the profile or None: exact model id first, then exact name; never a substring. `known(profiles, config_text)` returns `[(profile, [entries])]` using `match_device` (every Bluetooth and Bolt entry of one keyboard). `ambiguous(selector, other_names)` is the shared test for "this name is contained in another device's name". Reader command line for bash and the status helper: `profiles.py validate [dir]` and `profiles.py list [dir]` (`<slug>\t<displayName>\t<tested 0|1>`); a broken profile exits 4 naming the file. Slices 2 and 4 import `solaarcfg` read-only; nothing else defines matching.
 **TEST**: The identity outline (model id match when the name differs; exact name when the model id is all zero; the name stored in `_modelId`; never by substring, so "MX Keys S" and "MX Keys Mini" match nothing; a mouse matches nothing); two entries for one keyboard both returned with spans; the CLI exits 0 on the shipped profiles and 4 on a broken folder; `ambiguous` true for a name contained in another's.
 **REFACTOR**: Remove the old `known()`, `matches()` and `cids` command shapes from `lib/profiles.py`; leave no second matcher anywhere.
 **Files**: `lib/solaarcfg.py`, `lib/profiles.py`, `tests/test_profiles.py`
@@ -531,7 +553,7 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
 ### Slice 2: Status and restore from exact diversion parsing
 
 **Depends-on:** 1
-**Files:** `lib/status.py`, `bin/logitech-keys-status`, `bin/logitech-keys-restore`, `bin/logitech-keys-show-desktop`, `tests/test_status.py`, `tests/test_setup.sh`, `tests/qml/status-sample.json`, `tests/qml/status-sample-openlogi.json`
+**Files:** `lib/status.py`, `bin/logitech-keys-status`, `bin/logitech-keys-restore`, `bin/logitech-keys-show-desktop`, `bin/logitech-keys-start`, `tests/test_status.py`, `tests/test_setup.sh`, `tests/qml/status-sample.json`, `tests/qml/status-sample-openlogi.json`
 
 This slice owns the **whole status JSON contract** (ADR 0008): the `backend` block, the five key states including `unsupportedByBackend`, the battery object and the `report` source read from the state file. It is Solaar-only in what it produces; the OpenLogi values of the contract reach the JSON in Slice 7 through the seam, and the OpenLogi sample here is **synthetic**. Slice 8 (battery rules and helper) writes the state file this slice reads; it does not touch `lib/status.py`.
 
@@ -692,7 +714,7 @@ Feature: The status helper reports each profiled keyboard exactly
     # test: tests/test_status.py::status_contract
     Given the status built for <backend> in <situation>
     When the contract check runs
-    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState and otherRunning, and every key state is one of routed, dropped, notSetUp, absent or unsupportedByBackend
+    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState, otherRunning and canStart, and every key state is one of routed, dropped, notSetUp, absent or unsupportedByBackend
     And <rule>
 
     Examples:
@@ -797,6 +819,49 @@ Feature: The status helper reports each profiled keyboard exactly
       | the profile name is unknown                | 1    | no profile of that name                           |
       | the keyboard is not connected              | 0    | nothing to restore                                |
 
+  Scenario Outline: The status says whether the backend can be started
+    # Still passes if: the backend's label text changes
+    # test: tests/test_status.py::can_start
+    Given <backend> is <install> and <running>
+    When the status helper runs
+    Then backend.canStart is <canStart> and backend.running is <running value>
+
+    Examples:
+      | backend  | install       | running       | canStart | running value |
+      | Solaar   | installed     | not running   | true     | false         |
+      | Solaar   | installed     | running       | false    | true          |
+      | Solaar   | not installed | not running   | false    | false         |
+      | OpenLogi | installed     | not running   | false    | false         |
+      | OpenLogi | installed     | running       | false    | true          |
+
+  Scenario Outline: The Start Solaar helper starts Solaar hidden and changes nothing else
+    # Still passes if: the helper's one-line message is reworded
+    # test: tests/test_status.py::start_helper
+    Given <situation> in a sandbox with stub solaar, pgrep and setsid
+    When bin/logitech-keys-start runs
+    Then it exits <exit> and <effect>
+    And the sandbox Solaar and Hyprland config files and the state directory are byte-identical to before
+
+    Examples:
+      | situation                              | exit | effect                                                              |
+      | Solaar is installed and not running    | 0    | the stub is started once through setsid with --window=hide          |
+      | Solaar is already running              | 1    | nothing is started and the line says Solaar is already running      |
+      | Solaar is not installed                | 1    | nothing is started and the line says Solaar is not installed        |
+      | setsid cannot start Solaar             | 1    | the line says it could not start Solaar and the command to try      |
+
+  Scenario Outline: A query or backend battery figure is never written to the state directory
+    # Still passes if: the figure shown differs by a percent
+    # test: tests/test_status.py::battery_not_persisted
+    Given a battery state directory and a <source> figure of <value> and no report file
+    When the status is built and printed
+    Then the battery shows source <source> and no file under the state directory was created or changed
+
+    Examples:
+      | source  | value |
+      | query   | 100   |
+      | query   | 73    |
+      | backend | 100   |
+
   Scenario Outline: The Show Desktop helper toggles, or says Hyprland is missing
     # Still passes if: the helper prints a confirmation
     # test: tests/test_status.py::show_desktop_helper
@@ -834,29 +899,29 @@ Feature: The status helper reports each profiled keyboard exactly
 #### Step 2.2: JSON status with a schema field
 
 **Complexity**: standard
-**IMPLEMENT**: `lib/status.py status` prints JSON, keys sorted so the output is stable: `schema` (1), `backend` (`name`, `experimental`, `installed`, `running`, `usable`, `problem` (null or one of `agentUnavailable`, `versionMismatch`, `inventoryNotReady`, `unknownSchema`), `liveKeyState`, `otherRunning` (the other backend's name or null)), and `keyboards`, one per connected profiled keyboard, **sorted by slug**: `slug`, `name` (the profile's display name), `tested`, `connected`, `identity` (`modelId` or `name`: how it matched), `battery` (null or `{value, level, source, at}`: see below), `keys` in **profile order** (`cid`, `name` = Solaar's key name, `label`, `state`, and `reason` only for `unsupportedByBackend`) and `bindings` in profile order (`chord`, `label`; informational, for keys Solaar cannot divert; POP: `SUPER + CTRL + Q`, `Lock screen`), plus `keyTable` (`used`/`unavailable`). Key states are the five of ADR 0008. **`absent` is a profile fact** (the keyboard does not report the cid); **`unsupportedByBackend` is a backend fact** (never produced by the Solaar path; produced by the OpenLogi read side in Slice 7); both are dimmed and neither counts toward the warning. A keyboard that is paired but off is not listed. The JSON carries **states only**; the words the widget shows are defined in the widget (Step 3.1). **Battery** (ADR 0007, spec AC32): `battery_for(slug, report_text, query_percent, connected_at)` returns `{value, level, source, at}`: a report newer than `connected_at` wins (`source` `report`, `value` = the stored bucket lower bound + 5, `at` the stored epoch time); otherwise the `solaar show` figure (`source` `query`, `at` null); otherwise null; a damaged or out-of-range report file is ignored; `connected_at` is an **input** (null means unknown and any report is accepted); `level` is null for Solaar. The report file is `$XDG_STATE_HOME/logitech-keys/battery/<slug>` (two lines: the bucket lower bound and the epoch time, as written by the Slice 8 helper; the path is a function argument). `validate_status(obj)` is the contract check: schema, backend block, states in the enum, no `dropped` when `liveKeyState` is false, `unsupportedByBackend` carries a reason, battery shape; the OpenLogi sample must pass it. The pure builder `build_status(...)` takes the backend descriptor as data and writes `tests/qml/status-sample.json` (two keyboards, all routed, Solaar) and `tests/qml/status-sample-openlogi.json` (one synthetic OpenLogi keyboard, keys all `unsupportedByBackend`, battery source `backend`, labelled `synthetic: doc-derived USAGE.md @9ca7ef0`) so Slice 3 reads committed samples and never the per-variant fixtures that Step 5.4 deletes; `test_status.py` fails if a committed sample differs from the builder's output.
+**IMPLEMENT**: `lib/status.py status` prints JSON, keys sorted so the output is stable: `schema` (1), `backend` (`name`, `experimental`, `installed`, `running`, `usable`, `problem` (null or one of `agentUnavailable`, `versionMismatch`, `inventoryNotReady`, `unknownSchema`), `liveKeyState`, `otherRunning` (the other backend's name or null), `canStart` (true only for Solaar when it is installed and not running; always false for OpenLogi, whose agent this plugin never starts outside a consented switch)), and `keyboards`, one per connected profiled keyboard, **sorted by slug**: `slug`, `name` (the profile's display name), `tested`, `connected`, `identity` (`modelId` or `name`: how it matched), `battery` (null or `{value, level, source, at}`: see below), `keys` in **profile order** (`cid`, `name` = Solaar's key name, `label`, `state`, and `reason` only for `unsupportedByBackend`) and `bindings` in profile order (`chord`, `label`; informational, for keys Solaar cannot divert; POP: `SUPER + CTRL + Q`, `Lock screen`), plus `keyTable` (`used`/`unavailable`). Key states are the five of ADR 0008. **`absent` is a profile fact** (the keyboard does not report the cid); **`unsupportedByBackend` is a backend fact** (never produced by the Solaar path; produced by the OpenLogi read side in Slice 7); both are dimmed and neither counts toward the warning. A keyboard that is paired but off is not listed. The JSON carries **states only**; the words the widget shows are defined in the widget (Step 3.1). **Battery** (ADR 0007, spec AC32): `battery_for(slug, report_text, query_percent, connected_at)` returns `{value, level, source, at}`: a report newer than `connected_at` wins (`source` `report`, `value` = the stored bucket lower bound + 5, `at` the stored epoch time); otherwise the `solaar show` figure (`source` `query`, `at` null); otherwise null; a damaged or out-of-range report file is ignored; `connected_at` is an **input** (null means unknown and any report is accepted); `level` is null for Solaar. The report file is `$XDG_STATE_HOME/logitech-keys/battery/<slug>` (two lines: the bucket lower bound and the epoch time, as written by the Slice 8 helper; the path is a function argument). `validate_status(obj)` is the contract check: schema, backend block, states in the enum, no `dropped` when `liveKeyState` is false, `unsupportedByBackend` carries a reason, battery shape; the OpenLogi sample must pass it. The pure builder `build_status(...)` takes the backend descriptor as data and writes `tests/qml/status-sample.json` (two keyboards, all routed, Solaar) and `tests/qml/status-sample-openlogi.json` (one synthetic OpenLogi keyboard, keys all `unsupportedByBackend`, battery source `backend`, labelled `synthetic: doc-derived USAGE.md @9ca7ef0`) so Slice 3 reads committed samples and never the per-variant fixtures that Step 5.4 deletes; `test_status.py` fails if a committed sample differs from the builder's output.
 **TEST**: JSON shape and schema value; the backend block for both backends; every state in the enum and the `validate_status` failure cases (`dropped` under `liveKeyState` false, a bad state, a missing reason); keyboards sorted by slug, keys in profile order; the battery table (report newer, report older than the connect, none, damaged, out of range, unknown connect time, per-slug files); the owner's case (report bucket 10 to 19, query 100 gives 15 and `report`); the bindings entry pinned to `SUPER + CTRL + Q`; two-keyboard run; offline keyboard omitted; both sample files equal the builder output and the OpenLogi one is labelled synthetic.
 **REFACTOR**: The JSON builder is a pure function over parsed blocks.
 **Files**: `lib/status.py`, `tests/test_status.py`, `tests/qml/status-sample.json`, `tests/qml/status-sample-openlogi.json`
-**Covers**: AC6, AC12, AC15, AC32, AC39
+**Covers**: AC6, AC12, AC15, AC32, AC39, AC49
 **Commit**: `Print the keyboard status as JSON with a backend block and the battery object`
 
 #### Step 2.3: New bash helpers
 
 **Complexity**: standard
-**IMPLEMENT**: `bin/logitech-keys-status` only locates Solaar state (`solaar_daemon_pids` from `lib/solaar-procs.sh`, read-only), runs `timeout 20 solaar show all`, and pipes it to `python3 -I lib/status.py status`; it always exits 0 with valid JSON (not installed, not running, no keyboard, a timed-out `solaar show` all give JSON, not an error); it passes the Solaar backend descriptor (`installed`, `running`) as data, and Slice 7 later adds the second backend's lifecycle results (`otherRunning`). `bin/logitech-keys-show-desktop` is the v0.3 helper under its new name, and exits 1 with a one-line message when `hyprctl` is not on the path. The old `bin/pop-icon-keys-*` helpers stay until Step 5.4 retires them (the widget still calls them until Slice 3).
-**TEST**: Through a stub `solaar` and a stub `hyprctl` on `PATH` in `tests/test_status.py` (no real Solaar): the v0.3 status-helper cases (connected, not connected, Solaar missing, daemon running versus a one-off `solaar show`) produce the same facts as JSON; a `solaar show` stub that sleeps past 20 seconds yields the same JSON as "no keyboard" within about 21 seconds (one real 20-second case); the Show Desktop helper with a stub `hyprctl` reporting 0 and 3 windows (dispatch strings recorded) and with `hyprctl` missing.
+**IMPLEMENT**: `bin/logitech-keys-status` only locates Solaar state (`solaar_daemon_pids` from `lib/solaar-procs.sh`, read-only), runs `timeout 20 solaar show all`, and pipes it to `python3 -I lib/status.py status`; it always exits 0 with valid JSON (not installed, not running, no keyboard, a timed-out `solaar show` all give JSON, not an error); it passes the Solaar backend descriptor (`installed`, `running`) as data, and Slice 7 later adds the second backend's lifecycle results (`otherRunning`). `bin/logitech-keys-show-desktop` is the v0.3 helper under its new name, and exits 1 with a one-line message when `hyprctl` is not on the path. **`bin/logitech-keys-start`** (AC50) is the widget's Start Solaar action: it sources `lib/solaar-procs.sh` read-only, exits 1 with a one-line reason when Solaar is not installed (`command -v solaar`) or a daemon already runs (`solaar_daemon_pids`, so no second instance), otherwise runs `setsid -f solaar --window=hide` (the flag `-w, --window {show,hide,only}` was read from `solaar --help` on 1.1.20 and is the one `lib.sh`'s `start_solaar` already uses), exits 0, and on a failure to start prints `could not start Solaar; start it with: solaar --window=hide` and exits 1. It reads and writes no configuration or state file and asks nothing (the click is the consent); no `/tmp` state. It is a bash helper with no backend knowledge beyond Solaar; the widget only shows its button when `backend.canStart` is true. The old `bin/pop-icon-keys-*` helpers stay until Step 5.4 retires them (the widget still calls them until Slice 3).
+**TEST**: Through a stub `solaar` and a stub `hyprctl` on `PATH` in `tests/test_status.py` (no real Solaar): the v0.3 status-helper cases (connected, not connected, Solaar missing, daemon running versus a one-off `solaar show`) produce the same facts as JSON; a `solaar show` stub that sleeps past 20 seconds yields the same JSON as "no keyboard" within about 21 seconds (one real 20-second case); the Show Desktop helper with a stub `hyprctl` reporting 0 and 3 windows (dispatch strings recorded) and with `hyprctl` missing; the start helper table above (stub `solaar`, `pgrep` and `setsid`; the `setsid` stub records its arguments, so `--window=hide` is asserted; the sandbox config and state files are checksummed before and after); `can_start` for each backend and install and run state; `battery_not_persisted` (status with a query figure and an OpenLogi-style backend figure leaves a checksummed state directory untouched; a source check that no module other than `lib/battery.py` opens a path under the battery directory for writing).
 **REFACTOR**: One stub writer shared with Step 2.4.
-**Files**: `bin/logitech-keys-status`, `bin/logitech-keys-show-desktop`, `tests/test_status.py`
-**Covers**: AC2, AC12
-**Commit**: `Add the logitech-keys status and show-desktop helpers`
+**Files**: `bin/logitech-keys-status`, `bin/logitech-keys-show-desktop`, `bin/logitech-keys-start`, `tests/test_status.py`
+**Covers**: AC2, AC12, AC49, AC50, AC52
+**Commit**: `Add the logitech-keys status, show-desktop and start helpers`
 
 #### Step 2.4: Restore per keyboard, ambiguity-safe, and the v0.3 test inventory
 
 **Complexity**: complex
 **IMPLEMENT**: `lib/status.py restore-plan <slug>` prints, as tab-separated lines for bash, the **matched device block's exact printed name** (`device\t<name>`), each key to restore (`key\t<name>`, state `dropped` only) and, when the selector is ambiguous, `skip\t<reason>`. The selector is ambiguous when that exact name is contained in **any other** device block's name (`solaar config` matches by substring): the matched name is tested against every other block via `solaarcfg.ambiguous`. `bin/logitech-keys-restore <slug> [KEY...]` restores those keys with `solaar config "<exact name>" divert-keys <key> Diverted` (20 s timeout each), keeps the v0.3 messages and exit codes (stdout `restored: <key>`; stderr `failed: <key>` or `error: <text>`; exit 1 for Solaar not installed, not running, a failed key, an unknown profile, an ambiguous selector), exits 0 with "nothing to restore" when the keyboard is not connected, and **never writes a config file**. Decision kept from AC7: an ambiguous selector is skipped, not worked around.
 **TEST**: Stub `solaar` records calls: POP dropped keys restored with the other keyboard untouched; both keyboards dropped each restored once; exact device name used when the model id matched but the name differs; ambiguous selector sends nothing (exit 1, message); the sandbox `config.yaml` checksum is unchanged by a restore; the failure table (not installed, not running, failing key, 20-second command via a slow stub, unknown profile, keyboard away). **Moved from `tests/test_setup.sh`** (the old sections are deleted there in this step; counts below): the status-helper section's v0.3 cases become the Step 2.3 and 2.1 tests; the "restore helper" section (2 checks) becomes the restore tests; lines 313-314 of the current file (`status counts only the daemon`, `status: show command alone is not 'running'`, in the "a 'solaar show' running alongside the daemon" section) move to `test_status.py` while the three setup checks of that section stay in `test_setup.sh`; the "one key list everywhere" section (the `Panel.qml` grep) is **not ported**: it is replaced by a check that every profile key name appears in the status output built from the profiles, and `test_status.py` references neither `Panel.qml` nor `lib/edit.py` keys. Record the v0.3 check count first (119 at baseline: `ALL OK (119 checks)`).
-**REFACTOR**: Remove the moved sections from `tests/test_setup.sh`; `test_setup.sh` is free of `Panel.qml` and status-helper coupling for Slices 3 and 5.
+**REFACTOR**: (Slice 1, Step 1.4 already committed the one-line fixture path edit in `tests/test_setup.sh`; this step moves the section it belongs to.) Remove the moved sections from `tests/test_setup.sh`; `test_setup.sh` is free of `Panel.qml` and status-helper coupling for Slices 3 and 5.
 **Files**: `lib/status.py`, `bin/logitech-keys-restore`, `tests/test_status.py`, `tests/test_setup.sh`
 **Covers**: AC7, AC11, AC10
 **Commit**: `Restore dropped keys per keyboard and skip ambiguous selectors`
@@ -906,7 +971,11 @@ Copy table (strings defined once, in `Panel.qml`; the status JSON carries states
 | Backend problem `unknownSchema` | This widget cannot read OpenLogi's reply. Update Logitech Keys. |
 | OpenLogi section line | Keys are not mapped by OpenLogi in this version |
 | Solaar not installed | Solaar is not installed. Re-apply setup to install it. |
-| Solaar not running | Solaar is not running. Start it with: solaar --window=hide (setup also adds it to autostart). |
+| Solaar not running (banner, leads the popup) | Solaar is not running, so these keys do nothing. Closing Solaar's window quits it. |
+| Solaar not running, no start button (`canStart` false) | Start it hidden with: solaar --window=hide (setup also adds it to autostart). |
+| Start Solaar button (`canStart` true) | Start Solaar |
+| Start requested | Starting Solaar... until the next status read |
+| Start failed | the start helper's line as printed |
 | Restore failed | Could not restore `<key>`. Check that Solaar is running, then choose Restore. (the key comes from the helper's `failed:` line; a `skipped:` or `error:` line is shown as printed) |
 | Status unreadable | Could not read the keyboard status. Choose Refresh, or Re-apply setup. |
 | Unknown status schema | This widget does not understand the status it received. Reload the shell to finish updating Logitech Keys. |
@@ -1027,6 +1096,28 @@ Feature: One bar icon shows every connected profiled keyboard, in words
       | installed     | running     | no        | off  | shown   | not requested |
       | installed     | running     | one       | on   | shown   | not requested |
 
+  Scenario Outline: A stopped backend is shown prominently and Solaar can be started with one click
+    # Still passes if: the banner wording changes
+    # test: tests/qml/decisions.json (rows "backend stopped"), tests/qml/shell.qml::backend_stopped_banner, tests/qml_logic.py::pure_decisions
+    Given the status says <backend> installed <installed>, running <running> and canStart <canStart>, with a keyboard whose keys look lost
+    Then the popup <banner>, the icon is <icon>, the Start Solaar button is <button> and automatic restore <auto>
+
+    Examples:
+      | backend  | installed | running | canStart | banner                                                        | icon    | button | auto            |
+      | Solaar   | true      | false   | true     | leads with "Solaar is not running, so these keys do nothing"   | warning | shown  | does not run    |
+      | Solaar   | true      | true    | false    | has no banner                                                  | as before | hidden | follows the setting |
+      | Solaar   | false     | false   | false    | says Solaar is not installed and to re-apply setup             | as before | hidden | does not run    |
+      | OpenLogi | true      | false   | false    | shows the agent problem copy and no Solaar wording             | as before | hidden | does not run    |
+
+  Scenario: Start Solaar runs the helper once, shows a pending line and then the next status
+    # Still passes if: the pending line stays a moment longer
+    # test: tests/qml/shell.qml::start_solaar_action
+    Given the banner shows a Start Solaar button
+    When the button is chosen
+    Then bin/logitech-keys-start runs once and the popup shows "Starting Solaar..." until the next status read
+    And when the helper exits non-zero its line is shown as printed and the button stays available
+    And no setup, no consent prompt and no file write is involved
+
   Scenario Outline: Unreadable or unfamiliar status is reported in words
     # Still passes if: the widget reads the status a little later
     # test: tests/qml/shell.qml::status_errors
@@ -1143,21 +1234,21 @@ Feature: One bar icon shows every connected profiled keyboard, in words
 #### Step 3.1: Parse the status JSON and render sections in words
 
 **Complexity**: complex
-**IMPLEMENT**: Rewrite `Panel.qml` to run `bin/logitech-keys-status`, parse the JSON (`schema` checked; an unknown schema shows the schema-mismatch copy, unreadable JSON the unreadable copy, nothing yet "Checking..."), keep one bar icon, and render one popup section per keyboard sorted by slug: a header line (name, `Untested - may not match your keys` badge when untested, battery or `Battery unknown`, the one-line status from the copy table), then one row per key with a glyph **and** its text state (Active / Lost / Not set up / Not found; Lost reads `Lost, restoring...` while a restore runs), the dimmed flag set only for Not found, and bindings as an informational row. **Backend-aware rendering:** an `unsupportedByBackend` row reads "Not supported by `<backend.name label>`" and is dimmed; an `experimental` backend shows the badge and the OpenLogi section line; `backend.otherRunning` shows the both-own-the-receiver warning (and stops nothing); a `usable` false backend shows the copy for its `problem`; the battery follows the copy table (report with age, figure, "Full?", unknown); with `liveKeyState` false no Restore button is offered and no auto-restore runs. The strings live in one place in `Panel.qml` (the copy table); no collapsing of sections (decided: two keyboards fit). Where Qt supports it each key row and button carries an `Accessible.name` with the text state. Delete `keyMap`, `keyRouted(name)` and every hard-coded title and name. Keyboard use: Escape closes (the existing `PanelKeyCatcher`), Enter and Space activate a focused button, the existing `r`, `s`, `k` shortcuts stay and are named in the button tooltips. Whether Tab reaches the buttons depends on Omarchy's `PanelKeyCatcher`, which claims Tab to switch panels: **verify at build time**; if it is claimed, the shortcut letters are the keyboard path and the README says so (Risk).
+**IMPLEMENT**: Rewrite `Panel.qml` to run `bin/logitech-keys-status`, parse the JSON (`schema` checked; an unknown schema shows the schema-mismatch copy, unreadable JSON the unreadable copy, nothing yet "Checking..."), keep one bar icon, and render one popup section per keyboard sorted by slug: a header line (name, `Untested - may not match your keys` badge when untested, battery or `Battery unknown`, the one-line status from the copy table), then one row per key with a glyph **and** its text state (Active / Lost / Not set up / Not found; Lost reads `Lost, restoring...` while a restore runs), the dimmed flag set only for Not found, and bindings as an informational row. **Backend-aware rendering:** an `unsupportedByBackend` row reads "Not supported by `<backend.name label>`" and is dimmed; an `experimental` backend shows the badge and the OpenLogi section line; `backend.otherRunning` shows the both-own-the-receiver warning (and stops nothing); a `usable` false backend shows the copy for its `problem`; the battery follows the copy table (report with age, figure, "Full?", unknown); with `liveKeyState` false no Restore button is offered and no auto-restore runs. **Stopped backend (AC49):** when `backend.installed` and not `backend.running`, a banner leads the popup with the "Solaar is not running" copy (the program's label comes from `backend.name`), the icon takes its warning state, and no auto-restore runs (restore would fail); when `backend.canStart` is true the banner carries a **Start Solaar** button that runs `bin/logitech-keys-start` (Slice 2) and shows `Starting Solaar...` until the next status read, or the helper's line when it exits non-zero; without `canStart` the banner says how to start it (`solaar --window=hide`). The widget does not decide `canStart`; it reads it. The strings live in one place in `Panel.qml` (the copy table); no collapsing of sections (decided: two keyboards fit). Where Qt supports it each key row and button carries an `Accessible.name` with the text state. Delete `keyMap`, `keyRouted(name)` and every hard-coded title and name. Keyboard use: Escape closes (the existing `PanelKeyCatcher`), Enter and Space activate a focused button, the existing `r`, `s`, `k` shortcuts stay and are named in the button tooltips. Whether Tab reaches the buttons depends on Omarchy's `PanelKeyCatcher`, which claims Tab to switch panels: **verify at build time**; if it is claimed, the shortcut letters are the keyboard path and the README says so (Risk).
 **TEST**: `tests/qml/shell.qml` drives `tests/qml/status-sample.json` (Slice 2's output) and states derived from it by editing JSON states in the harness, through the real `Panel.qml`: two sections, one icon, header lines, per-key text states and glyphs, the dimmed flag, battery and `Battery unknown`, empty, malformed and schema-2 JSON; `Accessible.name` strings read back where the harness can. `tests/qml_logic.py` gains a text check that the widget source holds no key or keyboard names and labels (derived from the profiles, not hand-listed).
 **REFACTOR**: Replace the per-key properties (`divertedKeys`, `savedKeys`, `missingKeys`, `inactiveKeys`) with one `keyboards` model.
 **Files**: `Panel.qml`, `tests/qml_logic.py`, `tests/qml/shell.qml`, `tests/qml/KeyboardPanel.qml`
-**Covers**: AC6, AC12, AC25, AC33, AC39, AC40
+**Covers**: AC6, AC12, AC25, AC33, AC39, AC40, AC49
 **Commit**: `Render keyboards from the status JSON in the bar widget`
 
 #### Step 3.2: Untested, absent, warnings and per-keyboard restore
 
 **Complexity**: standard
 **IMPLEMENT**: Untested badge; absent keys dimmed and excluded from `needsSetup`; the all-absent and more-than-half-absent section messages (plain text, not the urgent colour); `needsSetup` and `needsRestore` over all keyboards (a keyboard with only lost keys turns the icon warning, as in v0.3); the icon tooltip lists the affected keyboards; auto-restore runs `bin/logitech-keys-restore <slug> <lost keys...>` once per keyboard that has lost keys, guarded by the existing 8 s recheck and the `autoRestore` setting; the restore process's stdout and stderr are read so a `failed:`, `skipped:` or `error:` line reaches the tooltip and popup; `Re-apply setup (all keyboards)` opens a terminal running `setup` (plan, then y/N) and shows the pending line until the next status read; the Restore button reads `Restore (lost keys only)`. The decision rows (visibility, `needsSetup`, `needsRestore`, absent exclusion, auto-restore rules) live in `tests/qml/decisions.json`; the QML harness runs each row against the real `Panel.qml` and `tests/qml_logic.py --pure` (stdlib only, no quickshell, run by CI) runs the same rows against a Python mirror of the decision functions, so a drift fails on the dev machine and the table cannot silently diverge.
-**TEST**: Both committed samples through the real `Panel.qml` (the OpenLogi one: all rows unsupported, badge, no restore); the battery forms table; the both-running warning; each backend problem; canned JSON for each Gherkin scenario (absent, all absent, mostly absent, untested, one keyboard fine and one not, lost keys only on the second, **both keyboards with lost keys restored once each**, auto-restore off, restoring in progress, hide when disconnected, Solaar missing or not running, restore failure copy for a key, an `error:` line and a `skipped:` line, Re-apply pending state); the decision table through the real widget and through the stdlib mirror.
+**TEST**: Both committed samples through the real `Panel.qml` (the OpenLogi one: all rows unsupported, badge, no restore); the battery forms table; the both-running warning; each backend problem; canned JSON for each Gherkin scenario (absent, all absent, mostly absent, untested, one keyboard fine and one not, lost keys only on the second, **both keyboards with lost keys restored once each**, auto-restore off, restoring in progress, hide when disconnected, Solaar missing or not running, restore failure copy for a key, an `error:` line and a `skipped:` line, Re-apply pending state); the decision table through the real widget and through the stdlib mirror; the stopped-backend rows (Solaar stopped with `canStart`, Solaar running, Solaar missing, OpenLogi stopped) and the Start Solaar action (one helper run, pending line, failure line, button kept) through the real `Panel.qml` with a stub helper.
 **REFACTOR**: Fold the v0.3 widget logic checks (visibility, low battery, setup retry counter) into the new harness; delete checks that tested the removed key list.
 **Files**: `Panel.qml`, `tests/qml/shell.qml`, `tests/qml/KeyboardPanel.qml`, `tests/qml/decisions.json`, `tests/qml_logic.py`
-**Covers**: AC6, AC7, AC15, AC25
+**Covers**: AC6, AC7, AC15, AC25, AC49
 **Commit**: `Show untested and absent keys and restore per keyboard`
 
 #### Step 3.3: Plugin identity
@@ -1362,7 +1453,7 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
     Given a record written for the Solaar backend after setup applied both profiles
     When the record is read back
     Then it has schema 1, the plugin version, backend solaar, switching null and the two profiles with ids, matched names and model ids
-    And its artifacts hold the Solaar entries per slug, the rules block, the battery rules and the autostart block, the Hyprland bindings block, and an empty openlogi entry with enabledService false
+    And its artifacts hold the Solaar entries per slug, the rules block, the battery rules and the autostart block, the Hyprland bindings block, and an empty openlogi entry with enabledService false and disabledService false
 
   Scenario Outline: The switching marker is written before and cleared after a switch
     # Still passes if: the record is indented differently
@@ -1458,7 +1549,7 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
 #### Step 4.4: The applied record
 
 **Complexity**: complex
-**IMPLEMENT**: `lib/applied.py`: `state_path(environ, home)` (`$XDG_STATE_HOME` when absolute, else `~/.local/state`, then `logitech-keys/applied.json`); `plugin_version(root)` reads `manifest.json`, the **one** place the version is read; `read(path)` (missing is empty, damaged or newer `schema` raises `Refuse(4, ...)` naming the file); `write(path, record, dry_run)` is a small atomic writer (temporary file in the same folder, fsync, `os.replace`, folder mode 0700) that makes **no `.bak`** (the record is state, not user content) and does nothing in a dry run; `reconcile(record, profiles)` returns the ids to reset and rule keys to drop; `union(old, new)`; `begin_switch(record, to)` and `finish_switch(record)` set and clear `switching` (the write-ahead record; used by Slice 9); an unknown `backend` name or a malformed `switching` is `Refuse(4, ...)`. Record shape (backend-aware, ADR 0008; v0.4.0 is unreleased so this is schema 1 itself): `{"schema": 1, "version": "<plugin version>", "backend": "solaar"|"openlogi", "switching": null|{"from", "to"}, "profiles": [{"slug", "ids", "names", "modelIds"}], "artifacts": {"solaar": {"entries": {slug: [names]}, "rulesBlock", "batteryRules", "autostartBlock"}, "hypr": {"bindingsBlock"}, "openlogi": {"entries": {}, "enabledService": false}}}` where `names` and `modelIds` are the **matched `config.yaml` entry** names and model ids, so `uninstall` can reset the right entries without the profile file; a slug missing from `profiles/` is kept as recorded and still reset. Documented write order, used by setup in Step 5.1: write the **union** of old and new ids **before** the diversion (resetting a never-diverted id is harmless), rewrite with the final ids **after** the work is done.
+**IMPLEMENT**: `lib/applied.py`: `state_path(environ, home)` (`$XDG_STATE_HOME` when absolute, else `~/.local/state`, then `logitech-keys/applied.json`); `plugin_version(root)` reads `manifest.json`, the **one** place the version is read; `read(path)` (missing is empty, damaged or newer `schema` raises `Refuse(4, ...)` naming the file); `write(path, record, dry_run)` is a small atomic writer (temporary file in the same folder, fsync, `os.replace`, folder mode 0700) that makes **no `.bak`** (the record is state, not user content) and does nothing in a dry run; `reconcile(record, profiles)` returns the ids to reset and rule keys to drop; `union(old, new)`; `begin_switch(record, to)` and `finish_switch(record)` set and clear `switching` (the write-ahead record; used by Slice 9); an unknown `backend` name or a malformed `switching` is `Refuse(4, ...)`. Record shape (backend-aware, ADR 0008; v0.4.0 is unreleased so this is schema 1 itself): `{"schema": 1, "version": "<plugin version>", "backend": "solaar"|"openlogi", "switching": null|{"from", "to"}, "profiles": [{"slug", "ids", "names", "modelIds"}], "artifacts": {"solaar": {"entries": {slug: [names]}, "rulesBlock", "batteryRules", "autostartBlock"}, "hypr": {"bindingsBlock"}, "openlogi": {"entries": {}, "enabledService": false, "disabledService": false}}}` (`disabledService` is true after a switch to Solaar ran `disable --now` on the OpenLogi service, so the plan and uninstall can print the re-enable command) where `names` and `modelIds` are the **matched `config.yaml` entry** names and model ids, so `uninstall` can reset the right entries without the profile file; a slug missing from `profiles/` is kept as recorded and still reset. Documented write order, used by setup in Step 5.1: write the **union** of old and new ids **before** the diversion (resetting a never-diverted id is harmless), rewrite with the final ids **after** the work is done.
 **TEST**: `tests/test_state.py`: the record robustness table (absent, damaged, newer schema, `XDG_STATE_HOME` unset and relative, dry run, interrupted write leaves the old record and no temporary file, no `.bak`); the union-before-divert order with a simulated stop before the final write followed by uninstall's edits; a dropped id whose keyboard has no entry; a slug missing from the profiles; the version equals `manifest.json`'s; the backend-aware shape, the switching marker rows and the unknown-backend refusal.
 **REFACTOR**: None needed beyond sharing path helpers with `fileedit.py`.
 **Files**: `lib/applied.py`, `tests/test_state.py`
@@ -1780,7 +1871,7 @@ Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
 ### Slice 6: Contributor gate and documentation (last)
 
 **Depends-on:** 3, 9
-**Files:** `README.md`, `.github/workflows/test.yml`, `.github/pull_request_template.md`, `.github/CODEOWNERS`, `tests/test_repo.py`, `.claude/CLAUDE.md`, `.gitignore`
+**Files:** `README.md`, `.github/workflows/test.yml`, `.github/pull_request_template.md`, `.github/CODEOWNERS`, `tests/test_repo.py`, `.claude/CLAUDE.md`
 
 This slice is last on purpose: every earlier slice already leaves the tree green, and the documents describe what exists (nine slices of code and tests now; the OpenLogi writer is deferred, so the README says OpenLogi support is read-only and experimental). `tests/test_repo.py` checks **structure only** (files exist, lists are complete, patterns hold). It does not assert prose, with the three M9 guards and a short keyword list for the README topics as the only exceptions (Decided list).
 
@@ -1888,6 +1979,14 @@ Feature: The repository gates keyboard contributions and documents them
     Then it says the keyboards must be in MacOS OS mode (Solaar Set OS), that the plugin does not change it and that other modes are untested
     And it does not contain the phrase Linux OS mode or Linux mode as a recommendation
 
+  Scenario: The README says to start Solaar hidden and not to close its window
+    # Still passes if: the explanation is reworded
+    # test: tests/test_repo.py::readme_start_solaar
+    Given the README
+    Then it says that closing Solaar's window quits Solaar on Omarchy and stops key routing
+    And it gives the command solaar --window=hide, says to leave Solaar running and names the widget's Start Solaar button
+    And the flag in that command is accepted by the installed solaar --help and is the one the setup script uses for autostart
+
   Scenario: The README has an experimental OpenLogi section with an install note and no piped installer
     # Still passes if: the AUR package name is cited with a version
     # test: tests/test_repo.py::readme_openlogi
@@ -1905,7 +2004,7 @@ Feature: The repository gates keyboard contributions and documents them
 
     Examples:
       | rule                                                                                                  |
-      | never stop or restart the developer's OpenLogi agent in tests or reviews                              |
+      | never start, stop, restart, enable or disable the developer's OpenLogi agent in tests or reviews     |
       | checksum ~/.config/openlogi/config.toml and ~/.config/systemd/user/ before and after a build         |
       | only the read-only openlogi api status and openlogi api devices commands may run on the real machine  |
       | the backend seam: bash is process lifecycle only, Python does file work, OpenLogi is read-only and experimental |
@@ -1926,17 +2025,17 @@ Feature: The repository gates keyboard contributions and documents them
 #### Step 6.2: README rewrite and "Add your keyboard"
 
 **Complexity**: standard
-**IMPLEMENT**: Rewrite `README.md` in this order: what it does; supported keyboards (a table marking the POP Icon Keys **tested with real hardware** (Solaar 1.1.20, **MacOS OS mode**, Fn-swap on) and the MX Keys for Mac untested, with its `note` (device data recorded from real hardware, key presses untested); the **MacOS OS mode requirement** stated plainly: set "Set OS" to MacOS in Solaar, the plugin never changes it, other modes are untested, and there is no mention of "Linux mode"); install and uninstall (new id and repo URL; one y/N covers all keyboards and the plan marks untested ones loudly, there is no per-keyboard `--only` option); upgrading from v0.3 (what setup migrates, the old-plugin warning); rollback (run **v0.4's own uninstall, which removes both generations**; there is no downgrade path); an **OpenLogi (experimental)** section (read-only in this version: detection, battery and backend status, every key shown as "Not supported by OpenLogi"; setup never installs it; the install note for the owner to run: the AUR package `openlogi`, then `sudo udevadm control --reload && sudo udevadm trigger` and `systemctl --user enable --now openlogi-agent.service`, **not** OpenLogi's piped shell installer, which the marketplace baseline forbids, and the README text itself carries no `curl ... | sh` line; quit Solaar first because only one program owns a receiver; the warning that OpenLogi's `keep_os_layout` default may move a keyboard out of MacOS mode and break `SUPER + CTRL + Q`; how to switch with `setup --backend`); troubleshooting (what each icon state means, in the widget's words: Active, Lost, Not set up, Not found, Untested, Solaar not running, the backend's problem messages, both programs running); then **Add your keyboard**: read key names and ids with `solaar show`; the profile format; the action table and the one allowed non-profile change (a new action is a reviewed edit to `lib/actions.json`); a copy-paste command that masks serial numbers and unit ids as `00000000`; the exact local test command (`python3 -I tests/test_profiles.py`); an example validator error; a worked diff of the MX Keys for Mac profile; "Test my keyboard" (press each key, then open a PR adding a truthful `verified` block); the notes for the Later items (Fn-swap keycaps, cid naming across Solaar versions, release batching: a new profile is a minor release, a fix a patch). No scaffold helper (decided: README only). The README does not claim the widget's Tab behaviour unless Step 3.1 verified it. Keep the `.gitignore` entry for `.dev-team-reports/` (already in the working tree).
-**TEST**: `tests/test_repo.py` (extended): heading order, the keyword list per topic (not sentence wording), a row per profile; the OS mode keywords (`MacOS` present, no `Linux OS mode`), the OpenLogi section keywords (`experimental`, `openlogi-agent.service`, `udevadm`) and no piped installer line; the M9 guards (the spec has no `Device` / `Model` text; AC3a does not say "comments"; no both-tested or jq claim); ADR 0005 accepted, ADR 0006 present.
+**IMPLEMENT**: The partial uncommitted README edit (the `Supported keyboards` table) is **reused in shape and replaced in content** (Slice 1 table): its POP row and line 68 say "Linux OS mode" and its MX row says "drafted from Solaar's key table"; both are rewritten here, and nothing else in the working-tree diff is kept. Rewrite `README.md` in this order: what it does; supported keyboards (a table marking the POP Icon Keys **tested with real hardware** (Solaar 1.1.20, **MacOS OS mode**, Fn-swap on) and the MX Keys for Mac untested, with its `note` (device data recorded from real hardware, key presses untested); the **MacOS OS mode requirement** stated plainly: set "Set OS" to MacOS in Solaar, the plugin never changes it, other modes are untested, and there is no mention of "Linux mode"); install and uninstall (new id and repo URL; one y/N covers all keyboards and the plan marks untested ones loudly, there is no per-keyboard `--only` option); upgrading from v0.3 (what setup migrates, the old-plugin warning); rollback (run **v0.4's own uninstall, which removes both generations**; there is no downgrade path); an **OpenLogi (experimental)** section (read-only in this version: detection, battery and backend status, every key shown as "Not supported by OpenLogi"; setup never installs it; the install note for the owner to run: the AUR package `openlogi`, then `sudo udevadm control --reload && sudo udevadm trigger` and `systemctl --user enable --now openlogi-agent.service`, **not** OpenLogi's piped shell installer, which the marketplace baseline forbids, and the README text itself carries no `curl ... | sh` line; quit Solaar first because only one program owns a receiver; the warning that OpenLogi's `keep_os_layout` default may move a keyboard out of MacOS mode and break `SUPER + CTRL + Q`; how to switch with `setup --backend`; a switch to Solaar lists and, on y, runs `systemctl --user disable --now openlogi-agent.service` so OpenLogi does not retake the receiver at login, and uninstall never re-enables it (it prints the command); the plugin never changes `keep_os_layout`, so the user turns it off themselves if they want to); a **Keep Solaar running** note in install (AC51): on Omarchy closing Solaar's window quits Solaar (there is no tray) and every special key stops working; start it hidden with `solaar --window=hide` (setup also adds this to autostart), leave it running, and use the widget's **Start Solaar** button if it quit; troubleshooting (what each icon state means, in the widget's words: Active, Lost, Not set up, Not found, Untested, Solaar not running, the backend's problem messages, both programs running); then **Add your keyboard**: read key names and ids with `solaar show`; the profile format; the action table and the one allowed non-profile change (a new action is a reviewed edit to `lib/actions.json`); a copy-paste command that masks serial numbers and unit ids as `00000000`; the exact local test command (`python3 -I tests/test_profiles.py`); an example validator error; a worked diff of the MX Keys for Mac profile; "Test my keyboard" (press each key, then open a PR adding a truthful `verified` block); the notes for the Later items (Fn-swap keycaps, cid naming across Solaar versions, release batching: a new profile is a minor release, a fix a patch). No scaffold helper (decided: README only). The README does not claim the widget's Tab behaviour unless Step 3.1 verified it. Keep the `.gitignore` entry for `.dev-team-reports/` (already in the working tree).
+**TEST**: `tests/test_repo.py` (extended): heading order, the keyword list per topic (not sentence wording), a row per profile; the OS mode keywords (`MacOS` present, no `Linux OS mode`), the OpenLogi section keywords (`experimental`, `openlogi-agent.service`, `udevadm`, `disable --now`, `keep_os_layout`) and no piped installer line; `readme_start_solaar`: the keywords `solaar --window=hide`, `Start Solaar` and `quits` are present, the flag text is checked against `solaar --help` when Solaar is installed on the dev machine (printed skip note otherwise; zero skips under `LK_REQUIRE_SOLAAR=1`) and `setup`/`lib.sh` still contain the same autostart command; the M9 guards (the spec has no `Device` / `Model` text; AC3a does not say "comments"; no both-tested or jq claim); ADR 0005 accepted, ADR 0006 present.
 **REFACTOR**: Cut README text the profiles now carry (key tables are described once).
-**Files**: `README.md`, `tests/test_repo.py`, `.gitignore`
-**Covers**: AC1, AC5, AC9, AC27
+**Files**: `README.md`, `tests/test_repo.py`
+**Covers**: AC1, AC5, AC9, AC27, AC51
 **Commit**: `Document Logitech Keys and how to add a keyboard`
 
 #### Step 6.3: Refresh project rules
 
 **Complexity**: trivial
-**IMPLEMENT**: Update `.claude/CLAUDE.md` for what was built: the final module list (including `lib/backends/`, `lib/battery.py`, `lib/backend_select.py`) and test commands (including `tests/test_repo.py`, `tests/test_backend_contract.py`, `tests/test_battery.py`, `tests/test_backend_select.py`, `LK_REQUIRE_SOLAAR=1`), the CI note, final file names. Replace the "Backend ... ADR 0008 is pending" rule with the accepted one (bash is process lifecycle only, Python does file work, OpenLogi is read-only and experimental, one backend per machine recorded in `applied.json`) and add the rules: **never stop or restart the developer's OpenLogi agent** in tests or reviews; **checksum `~/.config/openlogi/config.toml` and `~/.config/systemd/user/`** before and after a build, beside the four Solaar and Hyprland files; **only the read-only `openlogi api status` and `openlogi api devices`** may run against the real machine; every OpenLogi fixture and stub is labelled synthetic.
+**IMPLEMENT**: Update `.claude/CLAUDE.md` for what was built: the final module list (including `lib/backends/`, `lib/battery.py`, `lib/backend_select.py`) and test commands (including `tests/test_repo.py`, `tests/test_backend_contract.py`, `tests/test_battery.py`, `tests/test_backend_select.py`, `LK_REQUIRE_SOLAAR=1`), the CI note, final file names. **Replace the stale rule line "Backend: ... ADR 0008 is pending (architect pass); until it is accepted, code and specs describe Solaar only ..." (it still says pending; ADR 0008 is accepted and amended by D15 to D17)** with the accepted one (bash is process lifecycle only, Python does file work, OpenLogi is read-only and experimental, one backend per machine recorded in `applied.json`) and add the rules: **never start, stop, restart, enable or disable the developer's OpenLogi agent** in tests or reviews (D15's `disable --now` path is tested only against the `systemctl` stub); the Start Solaar helper and the widget banner (stopped backend) in the module list; **checksum `~/.config/openlogi/config.toml` and `~/.config/systemd/user/`** before and after a build, beside the four Solaar and Hyprland files; **only the read-only `openlogi api status` and `openlogi api devices`** may run against the real machine; every OpenLogi fixture and stub is labelled synthetic.
 **TEST**: Every command in the Commands table runs and passes from the repository root.
 **REFACTOR**: Trim anything in CLAUDE.md that the README now covers.
 **Files**: `.claude/CLAUDE.md`
@@ -2147,11 +2246,11 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
 #### Step 7.2: The OpenLogi read side with synthetic fixtures and stubs
 
 **Complexity**: complex
-**IMPLEMENT**: `lib/backends/openlogi.py`: `NAME`, `LABEL`, `EXPERIMENTAL=True`, `LIVE_KEY_STATE=False`; `collect(run, paths)` runs only `openlogi api status` and `openlogi api devices` through the injected `run` (timeout 20 seconds) and records each exit status and output; `probe(raw)` parses the single JSON envelope defensively (`schema_version` must be 1, `ok`, `data.inventory`, error `code`) and returns `{version, usable, problem}` with the closed problem set (`agentUnavailable`, `versionMismatch`, `inventoryNotReady`, `unknownSchema`; non-JSON output and exit 2 are `unknownSchema`); `known(raw, profiles)` matches an inventory device whose `name` **exactly** equals a profile `names` entry or its `backends.openlogi.names` entry (never a substring, a null name matches nothing, device `id` values are opaque and never parsed), two devices with the same matched name are marked ambiguous; `keyboards(raw, profiles, applied, now)` builds sections for **online** matched keyboards only (a keyboard `online` false and a mouse get none), with `battery` `{value: percentage, level: level or null, source: "backend", at: now}`, every key `unsupportedByBackend` with `reason` `notImplemented` (`unverified` only when a profile's `backends.openlogi.verified` lists the cid and the writer exists; not in v0.4.0), `liveKeyState` false; `restore` returns `[]`; `plan_apply` returns an empty `Plan` (no OpenLogi edit, every key outcome `unsupported`/`notImplemented`) and `plan_remove` an empty plan. `lib/backends/openlogi.sh`: `openlogi_installed` (`command -v openlogi` and `systemctl --user cat openlogi-agent.service`; a Flatpak install has no user unit and counts as not installed), `openlogi_running` (`systemctl --user is-active --quiet openlogi-agent.service`, else `pgrep -u $UID -x openlogi-agent`), `openlogi_stop`, `openlogi_start`, `openlogi_restart_if_stopped` (restarts only what this code stopped); all honour `--dry-run`. `tests/stubs/openlogi` prints the fixture named by an environment variable (and exits with the status the case needs, including 1 and 2); `tests/stubs/systemctl` accepts only `--user` with one of `cat`, `is-active`, `is-enabled`, `start`, `stop`, `enable`, `disable`, `show` on `openlogi-agent.service`, logs every call, and exits non-zero with a clear message for anything else. The fixtures are doc-derived and carry the synthetic label.
-**TEST**: `tests/test_backend_contract.py` (extended): the identity table; the ready-inventory sections; the problem table; every key unsupported; the shared properties for OpenLogi; the bindings-neutral check; OpenLogi's config and the unit folder checksummed before and after (never written, `systemctl` log empty); the lifecycle table; the fixtures and stubs labelled synthetic and the missing-stub guard; no profile has a `backends.openlogi.verified` block.
+**IMPLEMENT**: `lib/backends/openlogi.py`: `NAME`, `LABEL`, `EXPERIMENTAL=True`, `LIVE_KEY_STATE=False`; `collect(run, paths)` runs only `openlogi api status` and `openlogi api devices` through the injected `run` (timeout 20 seconds) and records each exit status and output; `probe(raw)` parses the single JSON envelope defensively (`schema_version` must be 1, `ok`, `data.inventory`, error `code`) and returns `{version, usable, problem}` with the closed problem set (`agentUnavailable`, `versionMismatch`, `inventoryNotReady`, `unknownSchema`; non-JSON output and exit 2 are `unknownSchema`); `known(raw, profiles)` matches an inventory device whose `name` **exactly** equals a profile `names` entry or its `backends.openlogi.names` entry (never a substring, a null name matches nothing, device `id` values are opaque and never parsed), two devices with the same matched name are marked ambiguous; `keyboards(raw, profiles, applied, now)` builds sections for **online** matched keyboards only (a keyboard `online` false and a mouse get none), with `battery` `{value: percentage, level: level or null, source: "backend", at: now}`, every key `unsupportedByBackend` with `reason` `notImplemented` (`unverified` only when a profile's `backends.openlogi.verified` lists the cid and the writer exists; not in v0.4.0), `liveKeyState` false; `restore` returns `[]`; `plan_apply` returns an empty `Plan` (no OpenLogi edit, every key outcome `unsupported`/`notImplemented`) and `plan_remove` an empty plan. `lib/backends/openlogi.sh`: `openlogi_installed` (`command -v openlogi` and `systemctl --user cat openlogi-agent.service`; a Flatpak install has no user unit and counts as not installed), `openlogi_running` (`systemctl --user is-active --quiet openlogi-agent.service`, else `pgrep -u $UID -x openlogi-agent`), `openlogi_stop`, `openlogi_start`, `openlogi_restart_if_stopped` (restarts only what this code stopped); all honour `--dry-run`. `tests/stubs/openlogi` prints the fixture named by an environment variable (and exits with the status the case needs, including 1 and 2); `tests/stubs/systemctl` accepts only `--user` with one of `cat`, `is-active`, `is-enabled`, `start`, `stop`, `enable`, `disable` (with or without `--now`, which also stops the unit), `show` on `openlogi-agent.service`, keeps the unit's enabled and active state in a file in the sandbox (initial state set by the test, so "already enabled" and "not enabled" are both testable), logs every call with its arguments in order, and exits non-zero with a clear message for anything else (D15 adds the `disable --now` call; it runs only against this stub). `lib/backends/openlogi.py` `collect` runs `openlogi api status` and `openlogi api devices` **only**: `openlogi list` is never run or parsed (it has no JSON form, ADR 0008), so with the agent disabled and stopped the real result is `agentUnavailable`. The fixtures are doc-derived and carry the synthetic label; **when the owner records real ones** (`openlogi fixture record case|profile`, checked with `openlogi fixture verify <dir>`, masked, plus the `api` envelopes beside them) they replace the synthetic files one by one and the label is dropped only for a file that is really recorded (the real format and whether it feeds the contract tests directly are on ADR 0008's unsettled list).
+**TEST**: `tests/test_backend_contract.py` (extended): the identity table; the ready-inventory sections; the problem table; every key unsupported; the shared properties for OpenLogi; the bindings-neutral check; OpenLogi's config and the unit folder checksummed before and after (never written, `systemctl` log empty); the lifecycle table; the fixtures and stubs labelled synthetic and the missing-stub guard; no profile has a `backends.openlogi.verified` block; the OpenLogi backend writes nothing under the battery state directory (AC52) and `collect` never runs `openlogi list`.
 **REFACTOR**: One envelope parser shared by `collect`'s consumers; one stub-log reader shared with Slice 9's tests.
 **Files**: `lib/backends/openlogi.py`, `lib/backends/openlogi.sh`, `tests/stubs/openlogi`, `tests/stubs/systemctl`, `tests/fixtures/openlogi/README.md`, `tests/fixtures/openlogi/api-status-ready.json`, `tests/fixtures/openlogi/api-status-agent-unavailable.json`, `tests/fixtures/openlogi/api-status-version-mismatch.json`, `tests/fixtures/openlogi/api-devices-ready.json`, `tests/fixtures/openlogi/api-devices-scanning.json`, `tests/fixtures/openlogi/api-devices-empty-ready.json`, `tests/fixtures/openlogi/api-devices-null-fields.json`, `tests/fixtures/openlogi/api-devices-lookalike.json`, `tests/fixtures/openlogi/api-devices-schema-2.json`, `tests/test_backend_contract.py`
-**Covers**: AC37, AC38, AC39, AC47, AC48
+**Covers**: AC37, AC38, AC39, AC47, AC48, AC52
 **Commit**: `Add the experimental read-only OpenLogi backend with synthetic fixtures`
 
 #### Step 7.3: Status and restore through the active backend
@@ -2293,10 +2392,10 @@ Feature: The battery figure comes from the keyboard's own reports
 
 **Complexity**: standard
 **IMPLEMENT**: `lib/battery.py` (stdlib, run as `python3 -I`): `write_report(state_home, slug, lo)` (atomic temporary file in the same folder, fsync, `os.replace`, two lines: the bucket lower bound and the epoch time; path `$XDG_STATE_HOME/logitech-keys/battery/<slug>`, a relative `XDG_STATE_HOME` ignored, never `/tmp`), `remove_state(state_home, dry_run)` (removes only the `logitech-keys` folder, `applied.json` included), and a small CLI `report <slug> <percent>` and `remove-state [--dry-run]`. The slug is validated against the **profile reader's** slug list (never a hand-written list); the percent must be an integer from 0 to 100; anything else exits non-zero and writes no file. `bin/logitech-keys-battery <slug> <percent>` is a thin bash wrapper that runs `python3 -I lib/battery.py report` and exits with its status.
-**TEST**: `tests/test_battery.py`: the argument table, the state-file location table, no file under `/tmp`, slugs from the reader including a third profile in a temporary folder, `remove-state` for real, dry run and absent folder.
+**TEST**: `tests/test_battery.py`: `helper_only_writer` (a source check that `lib/battery.py` is the only module that opens a path under the battery state directory for writing, AC52), the argument table, the state-file location table, no file under `/tmp`, slugs from the reader including a third profile in a temporary folder, `remove-state` for real, dry run and absent folder.
 **REFACTOR**: Share the atomic writer with `lib/applied.py`'s only if it needs no change to that file (read-only import of its path helper); otherwise keep the small writer here.
 **Files**: `lib/battery.py`, `bin/logitech-keys-battery`, `tests/test_battery.py`
-**Covers**: AC31, AC34
+**Covers**: AC31, AC34, AC52
 **Commit**: `Add the battery helper and the state directory removal`
 
 #### Step 8.2: Battery rules in the managed rules block
@@ -2314,7 +2413,7 @@ Feature: The battery figure comes from the keyboard's own reports
 **Depends-on:** 5
 **Files:** `setup`, `uninstall`, `lib.sh`, `lib/plan.py`, `lib/edit.py`, `lib/backend_select.py`, `lib/backends/openlogi.sh`, `tests/test_setup.sh`, `tests/test_plan.py`, `tests/test_edit.py`, `tests/test_backend_select.py`
 
-Slice 5 already applies the Solaar backend through the seam; this slice decides **which** backend, refuses when both run, switches between them with a write-ahead record, and makes uninstall handle every backend. It edits the same files as Slice 5, so it comes strictly after it. **Q1 default in force** (ADR 0008): a switch never runs `systemctl --user disable` on a service the plugin did not enable; the plan prints the command and warns that OpenLogi may retake the receiver at next login. The code path that runs `disable` is not built. The OpenLogi service is only `enable`d when switching to OpenLogi, recorded as `enabledService`, and uninstall disables only that.
+Slice 5 already applies the Solaar backend through the seam; this slice decides **which** backend, refuses when both run, switches between them with a write-ahead record, and makes uninstall handle every backend. It edits the same files as Slice 5, so it comes strictly after it. **D15 (owner: yes, with consent; ADR 0008)**: on a switch **to Solaar**, when the OpenLogi service is enabled, the plan lists `systemctl --user disable --now openlogi-agent.service` with the reason (it would retake the receiver at next login) and setup runs it **only on y**, after the old daemon is stopped and before Solaar starts; a service that is already disabled is not touched or listed; `disabledService: true` is recorded so uninstall prints the re-enable command and never runs it. The path is built and tested **only against the `systemctl` stub** (its call log proves the order and the y gate); it never runs on the real machine, where the owner's service is disabled and not running. The OpenLogi service is `enable`d only when switching to OpenLogi, recorded as `enabledService`, and uninstall disables only that.
 
 **Behavior:**
 
@@ -2368,7 +2467,8 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
       | OpenLogi chosen                                             | each key as "unsupported by OpenLogi (notImplemented)" and the line that OpenLogi's configuration is not changed |
       | OpenLogi chosen                                             | the warning that OpenLogi's OS layout default may move the keyboard out of MacOS mode and break SUPER + CTRL + Q |
       | a profile key the keyboard does not report                  | that key listed as absent                                                                    |
-      | a switch from OpenLogi to Solaar                            | the daemon actions stop and start in order and the printed systemctl --user disable command with the retake warning |
+      | a switch from OpenLogi to Solaar, service enabled           | the daemon actions in order: stop, systemctl --user disable --now openlogi-agent.service with the retake reason, start Solaar |
+      | a switch from OpenLogi to Solaar, service already disabled  | stop and start only, and no disable line                                                     |
       | a switch from Solaar to OpenLogi                            | the stop, the removal of the Solaar rules and diversion, the enable and start of the OpenLogi service |
       | any plan                                                    | nothing that setup will not do                                                               |
 
@@ -2415,12 +2515,27 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
       | not enabled           | one enable then start          | one disable                     | true     |
       | already enabled       | start only                     | no disable                      | false    |
 
-  Scenario: Switching to Solaar does not disable OpenLogi's service on its own
-    # Still passes if: the printed command wording changes
-    # test: tests/test_setup.sh::"no disable of a foreign service"
-    Given the OpenLogi unit was enabled by the owner and I run setup --backend solaar and accept
-    Then the stub log shows no disable call
-    And the plan and the final message print the command to disable it and warn that OpenLogi may retake the receiver at next login
+  Scenario Outline: A switch to Solaar disables OpenLogi's service only with consent and only when it is enabled
+    # Still passes if: the stub log prints the unit name in another form
+    # test: tests/test_setup.sh::"disable on switch to solaar"
+    Given the OpenLogi unit in the stub is <unit> and I run <command> and answer <answer>
+    Then the stub log shows <calls>
+    And the record says disabledService <recorded>
+
+    Examples:
+      | unit     | command                  | answer | calls                                                                                         | recorded |
+      | enabled  | setup --backend solaar   | y      | stop, then disable --now, then Solaar started, in that order                                  | true     |
+      | enabled  | setup --backend solaar   | n      | no systemctl call at all, no file changed, exit 0                                             | false    |
+      | disabled | setup --backend solaar   | y      | no disable call, and the plan had no disable line                                             | false    |
+      | enabled  | setup --backend openlogi | y      | no disable call anywhere                                                                      | false    |
+
+  Scenario: A failure after the disable restarts the OpenLogi agent and the switch can be finished
+    # Still passes if: the retry message is reworded
+    # test: tests/test_setup.sh::"switch to solaar interrupted after disable"
+    Given the OpenLogi unit is enabled and the Solaar start stub fails
+    When I run setup --backend solaar and answer y
+    Then the stub log shows the OpenLogi unit started again with start (and not enabled again), switching stays set and the exit is non-zero with a message to re-run
+    And running setup --backend solaar again after the stub is fixed finishes the switch and records disabledService true
 
   Scenario Outline: Uninstall removes every recorded backend's artifacts
     # Still passes if: the backups are left in place
@@ -2440,7 +2555,7 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
   Scenario: Uninstall never uninstalls a package or re-enables the other backend
     # Still passes if: the printed hint's wording changes
     # test: tests/test_setup.sh::"uninstall hints only"
-    Given an install that was switched from OpenLogi to Solaar
+    Given an install that was switched from OpenLogi to Solaar and the record says disabledService true
     When I run uninstall and accept
     Then no package command is run and no enable call is made
     And the message prints the command that would re-enable OpenLogi's service if the user wants it
@@ -2450,7 +2565,7 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
     # test: tests/test_setup.sh::"openlogi files untouched"
     Given the sandbox OpenLogi config and systemd user folder are checksummed
     When setup, a switch each way, status, restore and uninstall run
-    Then both checksums are unchanged except the single consented enable symlink of a switch to OpenLogi
+    Then both checksums are unchanged except the single consented enable symlink of a switch to OpenLogi and the single consented disable of a switch to Solaar
 ```
 
 **Steps:**
@@ -2458,7 +2573,7 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
 #### Step 9.1: Backend selection and the backend lines of the consent plan
 
 **Complexity**: complex
-**IMPLEMENT**: `lib/backend_select.py` (pure): `choose(flag, recorded, installed, running)` returns `(backend, reason, switch)` or a refusal for both running, following the matrix; the edit verb `select-backend` prints the choice and exit code 1 with the refusal text. `lib/plan.py` adds the backend lines: backend, reason, experimental badge, per keyboard each key as mapped, unsupported by `<backend>` (reason) or absent (from the backend's `plan_apply` outcomes), every daemon action (stop, start, enable, disable), the printed `systemctl --user disable` command for a switch away from OpenLogi with the retake warning, for OpenLogi the line that its configuration is not changed, and the OS-layout warning. `setup` calls `select-backend` first (a both-running refusal exits 1 before any change), then drives the chosen backend through the lifecycle functions and the `apply` verb. `--yes` still installs nothing; a missing OpenLogi with `--backend openlogi` exits non-zero with a pointer to the README install note.
+**IMPLEMENT**: `lib/backend_select.py` (pure): `choose(flag, recorded, installed, running)` returns `(backend, reason, switch)` or a refusal for both running, following the matrix; the edit verb `select-backend` prints the choice and exit code 1 with the refusal text. `lib/plan.py` adds the backend lines: backend, reason, experimental badge, per keyboard each key as mapped, unsupported by `<backend>` (reason) or absent (from the backend's `plan_apply` outcomes), every daemon action (stop, start, enable, and `systemctl --user disable --now openlogi-agent.service` on a switch to Solaar, listed with its reason only when the service is enabled), for OpenLogi the line that its configuration is not changed, and the OS-layout warning. `setup` calls `select-backend` first (a both-running refusal exits 1 before any change), then drives the chosen backend through the lifecycle functions and the `apply` verb. `--yes` still installs nothing; a missing OpenLogi with `--backend openlogi` exits non-zero with a pointer to the README install note.
 **TEST**: `tests/test_backend_select.py` (the matrix, the refusal, the flag differing from the record is a switch); `tests/test_plan.py` (each plan row); `tests/test_edit.py` (the verb and its exit codes); `tests/test_setup.sh` (the matrix with stubs, the refusal leaves everything unchanged, OpenLogi never installed, the plan lines).
 **REFACTOR**: One description of a daemon action shared by setup and uninstall plans.
 **Files**: `lib/backend_select.py`, `lib/plan.py`, `lib/edit.py`, `setup`, `lib.sh`, `tests/test_backend_select.py`, `tests/test_plan.py`, `tests/test_edit.py`, `tests/test_setup.sh`
@@ -2468,8 +2583,8 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
 #### Step 9.2: Switching with a write-ahead record
 
 **Complexity**: complex
-**IMPLEMENT**: A switch (flag differs from the record) is one consent and one plan and runs: (1) `begin_switch` writes the record with `switching {from, to}`; (2) the old daemon is stopped and an exit trap restarts it on any failure before step 5; (3) the old backend's `remove` (Solaar: reset the recorded cids in `config.yaml` while stopped, remove the rules block with its key and battery rules and the Solaar autostart block; OpenLogi: nothing in v0.4.0); (4) the old autostart that conflicts: **the command is printed, no `disable` is run** (Q1 default); (5) the new daemon starts (OpenLogi: `openlogi_enabled`, then `enable` only if not enabled and record `enabledService: true`, then `start`; Solaar: the existing start path); (6) the new backend's `apply`; (7) `finish_switch` writes `backend: <new>`, `switching: null`. `lib/backends/openlogi.sh` gains `openlogi_enabled` and `openlogi_enable`. A failure before step 5 restarts the old daemon, leaves `switching` set and exits non-zero saying to re-run; a re-run that sees `switching` finishes the switch from where it stopped (steps are idempotent). SIGTERM during the wait restarts the old daemon and leaves the record.
-**TEST**: `tests/test_setup.sh` (round trip with byte-identical Solaar files and the stub log order; write-ahead record observed before the stop; the interrupted start and the completing re-run; SIGTERM; enable ownership table; no `disable` of a foreign service and the printed command).
+**IMPLEMENT**: A switch (flag differs from the record) is one consent and one plan and runs: (1) `begin_switch` writes the record with `switching {from, to}`; (2) the old daemon is stopped and an exit trap restarts it on any failure before step 5; (3) the old backend's `remove` (Solaar: reset the recorded cids in `config.yaml` while stopped, remove the rules block with its key and battery rules and the Solaar autostart block; OpenLogi: nothing in v0.4.0); (4) the old autostart that conflicts (D15): on a switch to Solaar, `openlogi_enabled` is checked and, when the service is enabled, `openlogi_disable_now` runs `systemctl --user disable --now openlogi-agent.service` (listed in the plan, run only after the y; a disabled service is left alone; `disabledService: true` is recorded); (5) the new daemon starts (OpenLogi: `openlogi_enabled`, then `enable` only if not enabled and record `enabledService: true`, then `start`; Solaar: the existing start path); (6) the new backend's `apply`; (7) `finish_switch` writes `backend: <new>`, `switching: null`. `lib/backends/openlogi.sh` gains `openlogi_enabled`, `openlogi_enable` and `openlogi_disable_now`. A failure before step 5 restarts the old daemon (an OpenLogi agent with `systemctl --user start`, after step 4 it stays disabled), leaves `switching` set and exits non-zero saying to re-run; a re-run that sees `switching` finishes the switch from where it stopped (steps are idempotent). SIGTERM during the wait restarts the old daemon and leaves the record.
+**TEST**: `tests/test_setup.sh` (round trip with byte-identical Solaar files and the stub log order; write-ahead record observed before the stop; the interrupted start and the completing re-run; SIGTERM; enable ownership table; the D15 table (disable only on y, only on a switch to Solaar, only when enabled, in the stop-disable-start order, none on decline) and the interrupted-after-disable case; every case against the `systemctl` stub, never the real one).
 **REFACTOR**: The stop-and-restart-on-exit trap is the one already used by setup; reuse it, do not add a second.
 **Files**: `setup`, `lib.sh`, `lib/backends/openlogi.sh`, `tests/test_setup.sh`
 **Covers**: AC41, AC44, AC47, AC48
@@ -2478,7 +2593,7 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
 #### Step 9.3: Uninstall across backends
 
 **Complexity**: standard
-**IMPLEMENT**: `uninstall` reads the record and removes the artifacts of **every** backend it lists (a half-finished switch included), the Hyprland blocks, the helpers, the state directory (through `lib/battery.py remove-state`) and the record; it restarts only a daemon it stopped, disables only a service the record says the plugin enabled, never runs a package command and never re-enables the other backend (it prints the command). The plan lists each of these. With no record the v0.3 behaviour stays.
+**IMPLEMENT**: `uninstall` reads the record and removes the artifacts of **every** backend it lists (a half-finished switch included), the Hyprland blocks, the helpers, the state directory (through `lib/battery.py remove-state`) and the record; it restarts only a daemon it stopped, disables only a service the record says the plugin enabled, never runs a package command and never re-enables the other backend or a service a switch disabled (`disabledService`; it prints `systemctl --user enable --now openlogi-agent.service`). The plan lists each of these. With no record the v0.3 behaviour stays.
 **TEST**: `tests/test_setup.sh`: the uninstall table (solaar, openlogi, interrupted switch, old daemon still stopped), the enable ownership check, the hint-only check and the untouched-OpenLogi-files checksum.
 **REFACTOR**: None needed.
 **Files**: `uninstall`, `lib.sh`, `tests/test_setup.sh`
@@ -2533,7 +2648,7 @@ Steps rated `complex`: 1.2, 2.1, 2.4, 3.1, 4.0, 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.
 
 ### Acceptance criteria to slice, step and covering test
 
-Test names are the check groups to create. All 48 criteria appear, AC23 being
+Test names are the check groups to create. All 52 criteria appear, AC23 being
 the spec's AC3a. Every scenario carries a `# test:` line naming its test; this
 table is the criterion-level index.
 
@@ -2570,7 +2685,7 @@ table is the criterion-level index.
 | AC29 | 1.1, 1.4 | test_profiles.py "mx_matches_recording", "fixture_rules" (recorded and masked; synthetic MX files gone) |
 | AC30 | 8.2, 5.1 | test_battery.py "rules_shape", "no_battery_field_no_rules", "solaar_evaluates_battery_rules", "classify_and_idempotent"; test_setup.sh "battery helper and rules installed" |
 | AC31 | 8.1 | test_battery.py "helper_validation", "helper_state_file", "helper_no_tmp", "helper_slugs_from_reader" |
-| AC32 | 2.2 | test_status.py "battery_values", "battery_per_slug", "status_contract", "samples_match_builder" |
+| AC32 | 2.2 | test_status.py "battery_values", "battery_per_slug", "status_contract", "samples_match_builder" (a query or backend figure is never persisted: AC52) |
 | AC33 | 3.1, 3.2 | qml shell "battery_forms"; qml_logic.py "pure_decisions" |
 | AC34 | 8.1, 5.2, 9.3 | test_battery.py "remove_state"; test_setup.sh "uninstall removes the state directory", "uninstall across backends" |
 | AC35 | 7.1, 7.3, 5.0, 5.1 | test_backend_contract.py "registry_and_contract", "unknown_backend", "solaar_adapter_equals_status", "pure_outside_collect", "collect_allow_list"; test_setup.sh "setup uses the lifecycle seam" |
@@ -2579,14 +2694,18 @@ table is the criterion-level index.
 | AC38 | 7.2 | test_backend_contract.py "openlogi_problems" |
 | AC39 | 2.2, 3.1, 3.2, 7.2 | test_status.py "status_contract"; test_backend_contract.py "openlogi_keys_unsupported", "bindings_backend_neutral"; qml shell "unsupported_by_backend", "no_restore_without_live_state" |
 | AC40 | 3.1, 7.3 | test_backend_contract.py "other_running"; qml shell "other_backend_running" |
-| AC41 | 9.2 | test_setup.sh "switch round trip", "write-ahead switching record", "switch interrupted at the agent start", "switch stopped by SIGTERM", "enable and disable ownership", "no disable of a foreign service" |
-| AC42 | 9.3 | test_setup.sh "uninstall across backends", "uninstall hints only" |
-| AC43 | 9.1 | test_plan.py "backend_plan_lines"; test_setup.sh "consent plan backend lines" |
+| AC41 | 9.2 | test_setup.sh "switch round trip", "write-ahead switching record", "switch interrupted at the agent start", "switch stopped by SIGTERM", "enable and disable ownership", "disable on switch to solaar", "switch to solaar interrupted after disable" |
+| AC42 | 9.3 | test_setup.sh "uninstall across backends", "uninstall hints only" (a switch-disabled service is never re-enabled) |
+| AC43 | 9.1 | test_plan.py "backend_plan_lines" (the disable line only when the service is enabled); test_setup.sh "consent plan backend lines" |
 | AC44 | 4.4, 9.1, 9.2 | test_state.py "applied_backend_shape", "switching_marker", "applied_unknown_backend"; test_setup.sh "applied record backend and artifacts", "write-ahead switching record" |
 | AC45 | 1.2, 1.3 | test_profiles.py "os_mode_matrix" and the key-table cross-check with `osModes` |
 | AC46 | 1.2, 6.1 | test_profiles.py "backends_matrix"; test_repo.py "pr_template_items" |
 | AC47 | 7.1, 7.2, 7.3, 9.2 | test_backend_contract.py "shared_properties", "synthetic_labels_and_stub_guard"; the sandbox cases in test_setup.sh (selection matrix, switch round trip, interrupted switch, uninstall mid-switch) |
 | AC48 | 7.2, 9.2, 9.3, 6.3 | test_backend_contract.py "openlogi_never_written"; test_setup.sh "openlogi files untouched"; test_repo.py "claude_md_openlogi_rules" |
+| AC49 | 2.2, 3.1, 3.2 | test_status.py "can_start"; qml shell "backend_stopped_banner"; qml_logic.py "pure_decisions" (backend stopped rows) |
+| AC50 | 2.3, 3.2 | test_status.py "start_helper"; qml shell "start_solaar_action" |
+| AC51 | 6.2 | test_repo.py "readme_start_solaar" |
+| AC52 | 2.3, 7.2, 8.1 | test_status.py "battery_not_persisted"; test_battery.py "helper_only_writer"; test_backend_contract.py (OpenLogi writes nothing under the battery directory) |
 
 ### POP spec AC1 to AC18 to test (AC2 inventory)
 
@@ -2713,7 +2832,7 @@ Owner items, **unverified by this plan** (the build cannot do them; live checks 
 
 ## Deferred (not built in v0.4.0)
 
-**Deferred item S10: the OpenLogi key-mapping writer.** Not a slice and not scheduled: it is documented here so the tooling does not build it and so a later plan can pick it up. It is **conditional** on the owner recording fixtures from a real OpenLogi install (and on live checks 3 to 5) and is **not** in v0.4.0 unless the recordings arrive before release (Q2; the architect recommends v0.5.0). Dependency: Slice 9 and the owner's recordings. Files it would touch: `lib/backends/openlogi.py`, `lib/actions.json` (a fixed `bridge` key per action, F13 to F19, validated unique), `lib/rules.py` (the bridge Lua), and tests. Design (ADR 0008, "Deferred slice S10"): a **chord bridge**. Setup writes, for each mapped key, the OpenLogi binding `"control:0x<cid>" = { CustomShortcut = "Super+Ctrl+Alt+F13" }` inside a marked block in the device's bindings table, and in this plugin's Lua block `o.bind("SUPER + CTRL + ALT + F13", ..., <argv from actions.json>)`; commands only from `actions.json` run in Hyprland; OpenLogi's built-in actions are avoided. The exact key=value pairs are recorded in `applied.json` so removal works if OpenLogi's GUI rewrites comments; `tomllib` re-parses before the write; the agent is stopped and the GUI closed while `config.toml` is written; then the agent starts and `api status` and `api devices` must report ok and ready; on failure the backup is restored (stated in the consent plan). Until it exists, every OpenLogi key is `unsupportedByBackend` with reason `notImplemented`; afterwards `unverified` until `backends.openlogi.verified` lists the cid. Required re-recording before it (masked): `openlogi --version`; `api status` and `api devices`; `~/.config/openlogi/config.toml` after the agent has seen both keyboards; `diag controls` for the POP and the MX; `systemctl --user show openlogi-agent.service -p UnitFileState,ActiveState`. Not to be built either: mixing backends per keyboard, installing OpenLogi from setup, an OpenLogi native-action table, changing `keep_os_layout` automatically, Flatpak, a backend picker in the widget settings, a third backend (LogiOps) or a directory plugin contract.
+**Deferred item S10: the OpenLogi key-mapping writer.** Not a slice and not scheduled: it is documented here so the tooling does not build it and so a later plan can pick it up. It is **conditional** on the owner recording fixtures from a real OpenLogi install (and on live checks 3 to 5) **and on a recorded proof that OpenLogi's Linux build honours keyboard dedicated-key bindings** (its README says it does not, and `openlogi api` has no binding subcommand, so the writer would edit only the TOML; if the proof fails S10 is dropped and the keys stay `unsupportedByBackend`). It is **not** in v0.4.0: the owner decided (D17) to ship v0.4.0 with OpenLogi read-only and build S10 in v0.5.0. Dependency: Slice 9 and the owner's recordings. Files it would touch: `lib/backends/openlogi.py`, `lib/actions.json` (a fixed `bridge` key per action, F13 to F19, validated unique), `lib/rules.py` (the bridge Lua), and tests. Design (ADR 0008, "Deferred slice S10"): a **chord bridge**. Setup writes, for each mapped key, the OpenLogi binding `"control:0x<cid>" = { CustomShortcut = "Super+Ctrl+Alt+F13" }` inside a marked block in the device's bindings table, and in this plugin's Lua block `o.bind("SUPER + CTRL + ALT + F13", ..., <argv from actions.json>)`; commands only from `actions.json` run in Hyprland; OpenLogi's built-in actions are avoided. The exact key=value pairs are recorded in `applied.json` so removal works if OpenLogi's GUI rewrites comments; `tomllib` re-parses before the write; the agent is stopped and the GUI closed while `config.toml` is written; then the agent starts and `api status` and `api devices` must report ok and ready; on failure the backup is restored (stated in the consent plan). Until it exists, every OpenLogi key is `unsupportedByBackend` with reason `notImplemented`; afterwards `unverified` until `backends.openlogi.verified` lists the cid. Fixtures use OpenLogi's own tool where it fits (`openlogi fixture record case|profile`, `verify`, `contribute`), and the plan's synthetic fixtures are replaced by real ones as the owner records them. Required re-recording before it (masked): `openlogi --version`; `api status` and `api devices`; `~/.config/openlogi/config.toml` after the agent has seen both keyboards; `diag controls` for the POP and the MX; `systemctl --user show openlogi-agent.service -p UnitFileState,ActiveState`. Not to be built either: mixing backends per keyboard, installing OpenLogi from setup, an OpenLogi native-action table, changing `keep_os_layout` automatically, Flatpak, a backend picker in the widget settings, a third backend (LogiOps) or a directory plugin contract.
 
 ## Risks & Open Questions
 
@@ -2763,12 +2882,15 @@ Owner items, **unverified by this plan** (the build cannot do them; live checks 
   when Solaar changes its table; the dev-machine test compares it with the
   installed Solaar for the names the profiles use and fails on a mismatch.
 - **Contract tests over a docs-only backend give false confidence.** The OpenLogi fixtures and stubs are derived from `USAGE.md`, not recorded; they are labelled synthetic, never count as verification, and the OpenLogi backend carries the experimental badge and `unsupportedByBackend` for every key. Thirteen OpenLogi behaviours are open (ADR 0008); the owner's live checks and a masked re-recording (`openlogi --version`, `api status`, `api devices`, `config.toml`, `diag controls`, the unit state) are required before the deferred writer or any `backends.openlogi.verified`.
-- **OpenLogi's `keep_os_layout` default may change the keyboards** when the owner installs it (a keyboard may leave MacOS mode on connect and break `SUPER + CTRL + Q`); the plan warns and the README documents it; setup never changes it (Q3).
+- **OpenLogi's `keep_os_layout` default may change the keyboards** when the owner installs it (a keyboard may leave MacOS mode on connect and break `SUPER + CTRL + Q`); the plan warns and the README documents it; setup never changes it (D16).
 - **An interrupted switch** could leave both or neither daemon running: mitigated by the write-ahead `switching` record, the exit-trap restart before the new daemon starts, and a re-run that finishes the switch; uninstall handles a half-finished switch.
-- **Schedule.** Three new slices (7, 8, 9) and the reworked slice 5 lengthen the critical path to six waves (1, 2+4, 3+7+8, 5, 9, 6) and threaten the submission date. Q2 (ship OpenLogi read-only in v0.4.0) keeps the writer out of the path.
+- **Schedule.** Three new slices (7, 8, 9) and the reworked slice 5 lengthen the critical path to six waves (1, 2+4, 3+7+8, 5, 9, 6) and threaten the submission date. D17 (ship OpenLogi read-only in v0.4.0) keeps the writer out of the path.
 - **Where "the keyboard's last connect" comes from is not specified by ADR 0007.** The status builder takes `connected_at` as an input (null means unknown and any report is accepted); the Solaar adapter's source for it is an open implementation detail to settle at Step 2.2/7.1 and verify in live check 1. The AC32 tests pass explicit times.
 - **Slice 2 now owns the battery status contract** (including reading the state file) so Slice 8 stays additive and can share a wave with Slice 7; the file format (two lines: bucket lower bound, epoch time) is the interface between them and is tested on both sides.
-- **Q1 to Q3 are open** (ADR 0008, spec rows 37 to 39) with defaults in force: no `disable` of a foreign service (the command is printed), OpenLogi read-only, `keep_os_layout` unchanged.
+- **Q1 to Q3 are answered** (ADR 0008, spec rows 37 to 39): D15 a switch to Solaar disables the OpenLogi service on consent (built, stub-tested only), D16 `keep_os_layout` unchanged, D17 OpenLogi read-only in v0.4.0. No open owner questions remain beyond the live checks.
+- **The D15 `disable --now` path is the one place the plugin disables a service it did not enable.** Mitigations: listed in the plan, run only on y, only on a switch to Solaar, only when the service is enabled, recorded (`disabledService`), never reversed by uninstall (it prints the command), and exercised only against the `systemctl` stub (a missing stub fails the run); the real service on the owner's machine is disabled and is never touched.
+- **Closing Solaar's window quits Solaar on Omarchy** (no tray), which silently kills key routing: the widget shows a stopped backend prominently with a Start Solaar button (AC49, AC50) and the README says to start it hidden (AC51). Live check: the button on a really quit Solaar.
+- **`openlogi list` is not used.** It has no JSON form; the read side stays on `openlogi api`, so with the agent disabled (the owner's state) the backend reports `agentUnavailable`. Identity by model id for OpenLogi waits for a JSON `list` or a model id in `api devices`.
 - **Recorded POP fixture** was captured before this plan; Step 1.4 re-checks it
   for masking (MAC addresses, hid paths) and zero absent keys.
 
@@ -2794,23 +2916,31 @@ reversed by the owner at the cost named.
 | 13 | The `applied.json` write order is union-before-divert, final-after; the file has no `.bak` | A stop between the writes must still let uninstall reset everything | None needed |
 | 14 | Fn-swap keycap labels stay a README note | Needs per-OS-mode variants, a non-goal (ADR 0005) | Add a profile field later |
 | 15 | The closing "try these keys" line is built from the profiles' key labels | Bash may not know keyboards | Hard-code text |
-| 16 | New spec criteria are AC24 to AC48 (AC24 to AC26 from plan review, AC27 to AC34 OS mode, MX data and battery, AC35 to AC48 backend); the spec's AC3a is AC23 in this plan | Keeps existing numbering stable | Renumber |
+| 16 | New spec criteria are AC24 to AC52 (AC24 to AC26 from plan review, AC27 to AC34 OS mode, MX data and battery, AC35 to AC48 backend, AC49 to AC52 stopped backend, README and battery persistence); the spec's AC3a is AC23 in this plan | Keeps existing numbering stable | Renumber |
 | 17 | The review section is titled `## Plan Review Summary` | The dev-team tooling reads that heading | Rename |
 | 18 | The all-absent message keeps the word "profile" (reviewer's text) while every other user string says "keyboard" | One sentence for contributors reading an issue | Reword |
 | 19 | When Solaar records no supported keyboard, setup still installs the helper and the Solaar autostart block (they belong to no keyboard) but writes no rules, Lock binding or record, and exits 2 | The rules and Lock binding come from the applied set | Write nothing at all |
 | 20 | OpenLogi ships read-only and experimental in v0.4.0; its writer (chord bridge) is a documented later slice, not built (see Deferred) | Thirteen OpenLogi behaviours are undocumented; strict TOML means one bad write breaks the whole OpenLogi config | Build S10 after the owner's recordings |
-| 21 | Q1 default: a switch never runs `systemctl --user disable` on a service the plugin did not enable; the plan prints the command | The service is the owner's, not the plugin's; the printed command keeps the switch completing | Add the `disable` path and list it in the plan |
-| 22 | Q2: the v0.4.0 plan assumes OpenLogi read-only; the release decision stays with the owner | Architect recommends shipping read-only | Wait for S10 before release |
-| 23 | Q3: `keep_os_layout` is never changed by setup in v0.4.0; the plan warns and the README documents it | The layout is not readable through the API; decide after live check 3 | Add `openlogi api os-layout --set off --save` to setup |
+| 21 | D15 (owner, yes with consent): a switch to Solaar lists and, on y, runs `systemctl --user disable --now openlogi-agent.service` when it is enabled; built and stub-tested | The owner's OpenLogi install enabled it and it would retake the receiver at login; consent covers it | Print the command only (the earlier default) |
+| 22 | D17 (owner): ship v0.4.0 with OpenLogi read-only, S10 in v0.5.0; battery follows ADR 0007 (OpenLogi reads it the same way, nothing special to copy) | Owner: "or we can refer how they read battery and reproduce on ours"; verified in OpenLogi's source | Wait for S10 before release |
+| 23 | D16 (owner): `keep_os_layout` is never changed by the plugin in v0.4.0; the plan warns and the README documents it | The layout is not readable through the API | Add `openlogi api os-layout --set off --save` to setup |
 | 24 | LogiOps is considered and deferred, not built | No battery, `Keypress`-only actions, root-owned config and system service need `sudo` | A third backend slice |
 | 25 | The profile field stays `battery {feature}`; the architect's `batteryFeature` is not used | One name across the spec, ADR 0007, 0008 and the plan | Rename everywhere in one commit |
 | 26 | Slice 2 owns the whole status contract including battery `report` reading; Slice 8 is additive and writes the state file | Avoids a same-wave collision on `lib/status.py` between Slices 7 and 8 | Serialise Slice 8 after Slice 7 |
 | 27 | `lib/applied.py` is backend-aware from Slice 4 and is not edited by Slice 7 (the architect listed it under S7) | Slice 4 already owns it; one owner per fact | Edit it in Slice 7 |
 | 28 | Slice 7 also adds the `status` and `restore --backend` verbs to `lib/edit.py`; Slice 5 adds `apply|remove --backend` and the setup verbs; Slice 9 adds `select-backend` | Verbs arrive under new names in the slice that needs them (Plan rule 3) | Move all to one slice |
+| 29 | The widget shows a stopped backend with a banner and a Start Solaar button; `backend.canStart` (status, Slice 2) tells it; `bin/logitech-keys-start` (Slice 2) starts Solaar hidden with `setsid -f solaar --window=hide` | Owner finding: closing Solaar's window quits it; the flag is the one setup already uses and `solaar --help` confirms it; the widget must not decide what can be started | A widget-side `solaar` call; auto-start without a click |
+| 30 | `openlogi list` is not used by the read side; `openlogi api` only | `list` has no JSON form; parsing a text table is out | Parse the table for `model_ids` |
+| 31 | The partial uncommitted files are reused or replaced one by one (table under Slice 1): reader and profiles rewritten, POP fixtures, `.gitignore` and the `test_setup.sh` path edit reused, MX fixtures replaced, README rewritten in Step 6.2 | Each file inspected; the old schema conflicts with M1, M3, M8, D10 | Commit the partial files and patch |
+| 32 | The staged fixture renames and the `tests/test_setup.sh` path edit are committed together in Step 1.4 (Slice 1), not in Slice 2 | Every commit must stay green; the rename breaks the v0.3 section otherwise | Move the edit to Slice 2 and leave Slice 1 red |
 
 ## Plan Review Summary
 
 Plan tier: complex — reviewers: Design, Acceptance, Parallelization, UX, Strategic (all five).
+
+### Round 3 (2026-11-19, owner decisions D15 to D17 and live OpenLogi facts)
+
+Amended without re-dispatching the personas: AC41, AC42, AC43 and AC48 (D15: the consented `disable --now`, stub-tested, recorded as `disabledService`); AC32 and the new AC52 (D17: a query or backend battery figure is never persisted; OpenLogi's battery code is prior art); D16 (never change `keep_os_layout`); AC49 to AC51 (stopped backend banner, `backend.canStart`, `bin/logitech-keys-start`, README); Slice 1's per-file reuse or replace table and the commit of the staged renames with the `tests/test_setup.sh` and `.gitignore` edits; Slice 7's `systemctl` stub with state and `openlogi list` not used; S10 gated on a recorded proof and v0.5.0. Slices, dependencies and waves are unchanged (`bin/logitech-keys-start` is new in Slice 2, `.gitignore` moved from Slice 6 to Slice 1). The Acceptance and UX personas should re-read AC49 to AC52 and the Slice 9 D15 scenarios before the build.
 
 ### Round 2 (2026-11-19, backend extension): reviews to be re-run
 

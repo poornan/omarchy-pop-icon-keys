@@ -152,7 +152,7 @@ Feature: The status helper reports each profiled keyboard exactly
     # test: tests/test_status.py::status_contract
     Given the status built for <backend> in <situation>
     When the contract check runs
-    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState and otherRunning, and every key state is one of routed, dropped, notSetUp, absent or unsupportedByBackend
+    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState, otherRunning and canStart, and every key state is one of routed, dropped, notSetUp, absent or unsupportedByBackend
     And <rule>
 
     Examples:
@@ -256,6 +256,49 @@ Feature: The status helper reports each profiled keyboard exactly
       | a command takes longer than twenty seconds | 1    | failed with that key's name                       |
       | the profile name is unknown                | 1    | no profile of that name                           |
       | the keyboard is not connected              | 0    | nothing to restore                                |
+
+  Scenario Outline: The status says whether the backend can be started
+    # Still passes if: the backend's label text changes
+    # test: tests/test_status.py::can_start
+    Given <backend> is <install> and <running>
+    When the status helper runs
+    Then backend.canStart is <canStart> and backend.running is <running value>
+
+    Examples:
+      | backend  | install       | running       | canStart | running value |
+      | Solaar   | installed     | not running   | true     | false         |
+      | Solaar   | installed     | running       | false    | true          |
+      | Solaar   | not installed | not running   | false    | false         |
+      | OpenLogi | installed     | not running   | false    | false         |
+      | OpenLogi | installed     | running       | false    | true          |
+
+  Scenario Outline: The Start Solaar helper starts Solaar hidden and changes nothing else
+    # Still passes if: the helper's one-line message is reworded
+    # test: tests/test_status.py::start_helper
+    Given <situation> in a sandbox with stub solaar, pgrep and setsid
+    When bin/logitech-keys-start runs
+    Then it exits <exit> and <effect>
+    And the sandbox Solaar and Hyprland config files and the state directory are byte-identical to before
+
+    Examples:
+      | situation                              | exit | effect                                                              |
+      | Solaar is installed and not running    | 0    | the stub is started once through setsid with --window=hide          |
+      | Solaar is already running              | 1    | nothing is started and the line says Solaar is already running      |
+      | Solaar is not installed                | 1    | nothing is started and the line says Solaar is not installed        |
+      | setsid cannot start Solaar             | 1    | the line says it could not start Solaar and the command to try      |
+
+  Scenario Outline: A query or backend battery figure is never written to the state directory
+    # Still passes if: the figure shown differs by a percent
+    # test: tests/test_status.py::battery_not_persisted
+    Given a battery state directory and a <source> figure of <value> and no report file
+    When the status is built and printed
+    Then the battery shows source <source> and no file under the state directory was created or changed
+
+    Examples:
+      | source  | value |
+      | query   | 100   |
+      | query   | 73    |
+      | backend | 100   |
 
   Scenario Outline: The Show Desktop helper toggles, or says Hyprland is missing
     # Still passes if: the helper prints a confirmation

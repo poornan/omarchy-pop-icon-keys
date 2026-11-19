@@ -47,7 +47,8 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
       | OpenLogi chosen                                             | each key as "unsupported by OpenLogi (notImplemented)" and the line that OpenLogi's configuration is not changed |
       | OpenLogi chosen                                             | the warning that OpenLogi's OS layout default may move the keyboard out of MacOS mode and break SUPER + CTRL + Q |
       | a profile key the keyboard does not report                  | that key listed as absent                                                                    |
-      | a switch from OpenLogi to Solaar                            | the daemon actions stop and start in order and the printed systemctl --user disable command with the retake warning |
+      | a switch from OpenLogi to Solaar, service enabled           | the daemon actions in order: stop, systemctl --user disable --now openlogi-agent.service with the retake reason, start Solaar |
+      | a switch from OpenLogi to Solaar, service already disabled  | stop and start only, and no disable line                                                     |
       | a switch from Solaar to OpenLogi                            | the stop, the removal of the Solaar rules and diversion, the enable and start of the OpenLogi service |
       | any plan                                                    | nothing that setup will not do                                                               |
 
@@ -94,12 +95,27 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
       | not enabled           | one enable then start          | one disable                     | true     |
       | already enabled       | start only                     | no disable                      | false    |
 
-  Scenario: Switching to Solaar does not disable OpenLogi's service on its own
-    # Still passes if: the printed command wording changes
-    # test: tests/test_setup.sh::"no disable of a foreign service"
-    Given the OpenLogi unit was enabled by the owner and I run setup --backend solaar and accept
-    Then the stub log shows no disable call
-    And the plan and the final message print the command to disable it and warn that OpenLogi may retake the receiver at next login
+  Scenario Outline: A switch to Solaar disables OpenLogi's service only with consent and only when it is enabled
+    # Still passes if: the stub log prints the unit name in another form
+    # test: tests/test_setup.sh::"disable on switch to solaar"
+    Given the OpenLogi unit in the stub is <unit> and I run <command> and answer <answer>
+    Then the stub log shows <calls>
+    And the record says disabledService <recorded>
+
+    Examples:
+      | unit     | command                  | answer | calls                                                                                         | recorded |
+      | enabled  | setup --backend solaar   | y      | stop, then disable --now, then Solaar started, in that order                                  | true     |
+      | enabled  | setup --backend solaar   | n      | no systemctl call at all, no file changed, exit 0                                             | false    |
+      | disabled | setup --backend solaar   | y      | no disable call, and the plan had no disable line                                             | false    |
+      | enabled  | setup --backend openlogi | y      | no disable call anywhere                                                                      | false    |
+
+  Scenario: A failure after the disable restarts the OpenLogi agent and the switch can be finished
+    # Still passes if: the retry message is reworded
+    # test: tests/test_setup.sh::"switch to solaar interrupted after disable"
+    Given the OpenLogi unit is enabled and the Solaar start stub fails
+    When I run setup --backend solaar and answer y
+    Then the stub log shows the OpenLogi unit started again with start (and not enabled again), switching stays set and the exit is non-zero with a message to re-run
+    And running setup --backend solaar again after the stub is fixed finishes the switch and records disabledService true
 
   Scenario Outline: Uninstall removes every recorded backend's artifacts
     # Still passes if: the backups are left in place
@@ -119,7 +135,7 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
   Scenario: Uninstall never uninstalls a package or re-enables the other backend
     # Still passes if: the printed hint's wording changes
     # test: tests/test_setup.sh::"uninstall hints only"
-    Given an install that was switched from OpenLogi to Solaar
+    Given an install that was switched from OpenLogi to Solaar and the record says disabledService true
     When I run uninstall and accept
     Then no package command is run and no enable call is made
     And the message prints the command that would re-enable OpenLogi's service if the user wants it
@@ -129,4 +145,4 @@ Feature: Setup picks one backend, refuses an unsafe machine and switches with a 
     # test: tests/test_setup.sh::"openlogi files untouched"
     Given the sandbox OpenLogi config and systemd user folder are checksummed
     When setup, a switch each way, status, restore and uninstall run
-    Then both checksums are unchanged except the single consented enable symlink of a switch to OpenLogi
+    Then both checksums are unchanged except the single consented enable symlink of a switch to OpenLogi and the single consented disable of a switch to Solaar
