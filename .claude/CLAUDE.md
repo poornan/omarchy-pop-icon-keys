@@ -2,28 +2,32 @@
 
 Omarchy plugin (`io.github.poornan.logitech-keys`, display name "Logitech
 Keys", renamed from `pop-icon-keys` in v0.4.0) that maps the special keys of
-Logitech keyboards to Omarchy actions through Solaar rules, binds keys Solaar
-cannot divert (POP Icon Keys Lock), and shows one bar widget with battery and
-routing status per keyboard. Keyboards are described by profile files
-(`profiles/<slug>.json`); shipped: POP Icon Keys (tested) and MX Keys for Mac
-(untested). Repo `github.com/poornan/omarchy-logitech-keys` (renamed on GitHub
-later by the owner; the old name is `omarchy-pop-icon-keys`); prepared for
-submission to the Omarchy plugin marketplace (omacom/omarchy-plugin-marketplace),
-not yet submitted (v0.3 was only installed from a local path by the owner).
+Logitech keyboards to Omarchy commands through Solaar rules, binds keys Solaar
+cannot divert (POP Icon Keys Lock), restores keys the keyboard drops, and shows
+one bar widget with battery and one state per keyboard. Keyboards are described
+by **presets** (the owner's word for `profiles/<slug>.json`, kept as the
+directory name); shipped: POP Icon Keys (tested) and MX Keys for Mac (untested
+key presses). **v0.4.0 is slim (owner decision D19, ADR 0009, spec row 67):**
+no swappable backend, no action table, no `applied.json`, no legacy-rule
+migration machinery; they are deferred, not deleted. Repo
+`github.com/poornan/omarchy-logitech-keys` (renamed on GitHub later by the owner;
+the old name is `omarchy-pop-icon-keys`); prepared for submission to the Omarchy
+plugin marketplace (omacom/omarchy-plugin-marketplace), not yet submitted (v0.3
+was only installed from a local path by the owner).
 
 ## Stack
 
 - **Bar widget:** QML on Quickshell (Omarchy 4.x shell). Entry point `Panel.qml`,
   declared in `manifest.json` (`kinds: ["bar-widget"]`).
 - **Install scripts:** bash (`setup`, `uninstall`, `lib.sh`) with Python 3
-  helpers (stdlib + PyYAML, run as `python3 -I`): `lib/edit.py` is the command
-  line only; `lib/solaarcfg.py` (the one device matcher), `lib/fileedit.py`,
-  `lib/diversion.py`, `lib/rules.py` (all escaping), `lib/applied.py`,
-  `lib/legacy.py` (frozen v0.3 table), `lib/plan.py` (consent plan as data).
-- **Profiles and actions:** `profiles/*.json`, `lib/actions.json`, read only by
-  `lib/profiles.py` (stdlib). `lib/status.py` builds the widget's JSON.
-- **Helpers:** `bin/logitech-keys-*` (status, restore, show-desktop, battery).
-- **External tools:** solaar, hyprctl, jq (never on profiles), pgrep, setsid, timeout.
+  helpers (stdlib + PyYAML, run as `python3 -I`): `lib/edit.py` (v0.3 command
+  line and file primitives, preset-driven), `lib/profiles.py` (the one preset
+  reader), `lib/solaarcfg.py` (the one device matcher), `lib/status.py` (status
+  JSON, restore), `lib/rules.py` (rules, Lua and **all escaping**),
+  `lib/plan.py` (consent plan text).
+- **Helpers:** `bin/logitech-keys-*` (status, restore, start, show-desktop,
+  battery).
+- **External tools:** solaar, hyprctl, pgrep, setsid, timeout (never `jq` on presets).
 - No package manager, no build step.
 
 ## Commands
@@ -32,13 +36,10 @@ not yet submitted (v0.3 was only installed from a local path by the owner).
 |---|---|
 | Validate manifest | `omarchy-plugin-validate .` |
 | Syntax check | `for f in setup uninstall lib.sh bin/*; do bash -n "$f"; done` |
-| Profile schema and fixtures | `python3 -I tests/test_profiles.py` |
-| Status parsing | `python3 -I tests/test_status.py` |
-| Rules, classify, escaping, Solaar loader | `python3 -I tests/test_rules.py` |
-| Diversion, applied record | `python3 -I tests/test_state.py` |
-| Consent plan | `python3 -I tests/test_plan.py` |
-| edit.py command line | `python3 -I tests/test_edit.py` |
-| Repository structure (CI files, allowlists) | `python3 -I tests/test_repo.py` |
+| Preset schema and fixtures | `python3 -I tests/test_profiles.py` |
+| Status, restore | `python3 -I tests/test_status.py` |
+| Rules, classify, escaping | `python3 -I tests/test_rules.py` |
+| Consent plan, edit.py, battery helper, imports, repo structure | `python3 -I tests/test_plan.py`, `test_edit.py`, `test_battery.py`, `test_imports.py`, `test_repo.py` |
 | Setup/uninstall sandbox tests | `bash tests/test_setup.sh` |
 | Widget logic tests | `python3 tests/qml_logic.py` (`--pure` runs the stdlib part only) |
 | QML lint | `/usr/lib/qt6/bin/qmllint Panel.qml` (unresolved `qs.*` import warnings are expected) |
@@ -46,11 +47,12 @@ not yet submitted (v0.3 was only installed from a local path by the owner).
 | Plan waves | `python3 ~/.claude/plugins/cache/agentic-dev-team/dev-team/14.3.0/scripts/plan_waves.py plans/<slug>.md` |
 
 shellcheck is not installed on the dev machine. Run every check above before
-committing, with `LK_REQUIRE_SOLAAR=1` on the Python tests: a skipped Solaar
-check is a failure on the dev machine (CI uses a pinned key-table snapshot).
-Every slice and every commit leaves the tree and `bash tests/test_setup.sh`
-green. CI (`.github/workflows/`) runs the stdlib and sandbox tests, not
-the QML ones (they need quickshell).
+committing, with `LK_REQUIRE_SOLAAR=1` on the Python tests (a skipped Solaar
+check is a failure on the dev machine; CI has no Solaar). Every slice and every
+commit leaves the tree and `bash tests/test_setup.sh` green; the v0.3 safety
+tests (119 checks) are kept. CI (`.github/workflows/`) runs the stdlib and
+sandbox tests, not the QML ones (they need quickshell). Tests that need the
+planned files exist only once their slice is built (`plans/logitech-keys-profiles.md`).
 
 ## Rules
 
@@ -66,31 +68,45 @@ the QML ones (they need quickshell).
 - **Edits go in marked blocks only:** `# BEGIN logitech-keys` / `# END
   logitech-keys` (YAML), `-- BEGIN/END logitech-keys` (Lua). Damaged markers
   abort with no change. Writes are atomic; files are backed up only when their
-  content changes. Setup also migrates v0.3 `pop-icon-keys` blocks, the old
-  helper, and v0.3 rules Solaar's editor rewrote without markers.
-- **Profiles are data, actions are code.** A profile names action ids from
-  `lib/actions.json`, never commands; `lib/profiles.py` is the only reader and
-  validates strictly (unknown fields fail). Slugs are permanent. A profile is
-  tested only if it has a `verified` block (no boolean). Identify keyboards by
-  exact model id, then exact name, never by substring; never use `jq` on
-  profiles; `Panel.qml` has no keyboard or key names and renders
-  `bin/logitech-keys-status` JSON only.
+  content changes. Setup also removes v0.3 `pop-icon-keys` blocks and the old
+  helper (with consent); v0.3 rules Solaar's editor rewrote without markers are
+  only warned about ("your own rules"), not deleted.
+- **Presets are data.** A preset holds key name, cid, label and an Omarchy
+  `command` (argument list); `lib/profiles.py` is the only reader (basic
+  validation). **Accepted risk (D19):** a preset PR can put a command that Solaar
+  runs on a key press; only maintainer review mitigates it. Keep argv-list
+  validation, the chord regex and one escaping module (`lib/rules.py`). Slugs are
+  permanent. A preset is tested only if it has a `verified` block (no boolean).
+  Identify keyboards by exact model id, then exact name, never by substring; the
+  MX preset's `names` hold both "MX Keys for Mac" (online) and "MX Keys Mac" (the
+  codename Solaar saves in `config.yaml` while offline). Never `jq` on presets;
+  `Panel.qml` has no keyboard or key names and renders `bin/logitech-keys-status`
+  JSON only.
+- **Query each keyboard on its own: `solaar show "<name>"`, NEVER `solaar show
+  all`** (Solaar 1.1.20 crashes with `UnicodeDecodeError` in `get_host_names`
+  printing the MX Master 4). Verify each returned block's Model ID or exact name;
+  truncated output or a non-zero exit gives state `unknown` (never disconnected,
+  never not set up, never restored).
+- **Daemon detection:** `pgrep -x solaar`; the owner runs `solaar -dd
+  --window=hide`, which counts as the daemon (only CLI subcommands are excluded).
 - **Every generated Solaar rule has a `Device` condition** (`Or` over the
-  profile's names). Solaar 1.1.20 has no `Model` condition.
-- **`$XDG_STATE_HOME/logitech-keys/applied.json`** records what setup diverted
-  (slug, control ids, version). Setup reconciles against it, uninstall resets
-  from it and deletes it. Rule comments are not state (Solaar drops them).
-  **`.../battery/<slug>`** holds the last battery report (value, epoch time),
-  written only by `bin/logitech-keys-battery`, which Solaar rules call
-  (ADR 0007); uninstall removes the whole state directory. Never parse Solaar
-  logs or add `-d` for battery, and never use `/tmp`.
+  preset's names). Solaar 1.1.20 has no `Model` condition.
+- **Battery (ADR 0007, kept by D19):** `$XDG_STATE_HOME/logitech-keys/battery/<slug>`
+  holds the last battery report (bucket lower bound, epoch time), written only by
+  the self-contained `bin/logitech-keys-battery`, which Solaar rules call; a query
+  value is never persisted; `choose_battery(report, query)` keeps the last report
+  unless a query is lower (D18); uninstall removes the state directory. Never
+  parse Solaar logs or add `-d` for battery, and never use `/tmp`. The README
+  labels the battery "unverified until live-checked" until the owner's live check.
+  Uninstall resets the control ids of the known presets (a user's own diverted key
+  on the same id is reset too; the plan says so).
 - **Key state `absent`** (in neither diversion line) is dimmed and never counts
   toward the needs-setup warning.
-- **One recorded fixture per profile** (`tests/fixtures/<slug>/`, first line has
+- **One recorded fixture per preset** (`tests/fixtures/<slug>/`, first line has
   the Solaar version, serials and unit ids masked); routed/dropped/not-set-up
   variants are derived in tests. Synthetic fixtures are labelled and never count
   as verification. Full sandbox setup runs only for POP Icon Keys, the
-  two-keyboard case and migration; other profiles get fast pure-Python checks.
+  two-keyboard case and the v0.3 cleanup; other presets get fast pure-Python checks.
 - **Solaar diversion must be written to `~/.config/solaar/config.yaml` while
   Solaar is stopped.** A running Solaar overwrites that file on exit, and
   `solaar config` alone does not persist across restarts.
@@ -107,12 +123,15 @@ the QML ones (they need quickshell).
 - Key names and Solaar control ids (POP: 110 Show Desktop, 212 MultiPlatform
   Search, 259 Dictation, 264 Emoji, 266 Screen Capture) are verified only on
   Solaar 1.1.20 with the POP Icon Keys in MacOS OS mode. The MX Keys for Mac
-  profile's device data was recorded from real hardware (2026-11-19) but its
+  preset's device data was recorded from real hardware (2026-11-19) but its
   key presses are untested, so it has no `verified` block (a `note` says so).
-- **Backend:** the owner decided on a swappable backend, Solaar or OpenLogi
-  (D13). ADR 0008 is pending (architect pass); until it is accepted, code and
-  specs describe Solaar only, and new code should keep keyboard and battery
-  logic out of Solaar-specific files.
+- **Closing Solaar's window quits Solaar on Omarchy** (no tray); the widget shows
+  a banner with Start Solaar (`bin/logitech-keys-start`: `setsid -f solaar
+  --window=hide`) and Open Solaar.
+- **Deferred by D19 (do not build; documented in ADR 0008, ADR 0009 and the
+  plan):** swappable Solaar/OpenLogi backend and switching, action table,
+  `applied.json`, legacy-rule migration, strict preset schema, CODEOWNERS and PR
+  template, per-key widget UI.
 
 ## dev-team workflow
 
@@ -140,8 +159,8 @@ written afterwards from the code and the design conversation, and say so.
   repo settings, protect `main` with the CI check as a required check, and the
   owner approves at PR time.
 - Version lives only in `manifest.json` (`version`, semver). Bump it in the
-  same commit as the change. A new profile is a minor bump, a fix a patch;
-  profile PRs may batch into one release.
+  same commit as the change. A new preset is a minor bump, a fix a patch;
+  preset PRs may batch into one release.
 - Releases are tagged `v<version>` on `main` after the PR is merged, with a
   GitHub release.
 - Future process, once the plugin has been submitted and listed: updates go
