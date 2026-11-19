@@ -1,0 +1,15 @@
+{
+  "slug": "mx-keys-mac",
+  "displayName": "MX Keys for Mac",
+  "solaarNames": ["MX Keys for Mac"],
+  "modelId": "B36140920000",
+  "tested": false,
+  "verified": null,
+  "keys": [
+    { "name": "Dashboard Launchpad/Action Center", "cid": 225, "cap": "F4", "label": "App launcher (Launchpad)", "command": ["omarchy-shell", "omarchy.dock", "apps"] },
+    { "name": "Screen Capture/Print Screen", "cid": 191, "cap": "Print", "label": "Region screenshot", "command": ["omarchy-capture-screenshot", "region"] },
+    { "name": "Screen Lock", "cid": 111, "cap": "Lock", "label": "Lock screen", "command": ["omarchy-system-lock"] },
+    { "name": "Calculator", "cid": 10, "cap": "Calc", "label": "Calculator", "command": ["omacalc"] }
+  ],
+  "hyprBindings": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "pop-icon-keys",
+  "displayName": "POP Icon Keys",
+  "solaarNames": ["POP Icon Keys"],
+  "modelId": "B38F00000000",
+  "tested": true,
+  "verified": { "solaar": "1.1.20", "date": "2026-11-19", "osMode": "Linux" },
+  "keys": [
+    { "name": "Show Desktop", "cid": 110, "cap": "F4", "label": "Empty workspace, again to return", "command": ["@show-desktop"] },
+    { "name": "MultiPlatform Search", "cid": 212, "cap": "F5", "label": "App launcher", "command": ["omarchy-shell", "omarchy.dock", "apps"] },
+    { "name": "Dictation", "cid": 259, "cap": "F6", "label": "Dictation (omarchy-dictation)", "command": ["omarchy-dictation", "toggle"] },
+    { "name": "Emoji", "cid": 264, "cap": "F7", "label": "Emoji picker", "command": ["omarchy-shell", "shell", "toggle", "omarchy.emojis"] },
+    { "name": "Screen Capture", "cid": 266, "cap": "F8", "label": "Region screenshot", "command": ["omarchy-capture-screenshot", "region"] }
+  ],
+  "hyprBindings": [
+    { "cap": "Lock", "bind": "SUPER + CTRL + Q", "label": "Lock screen (Super+Ctrl+Q)", "command": "omarchy-system-lock",
+      "note": "The Lock key (Fn + last key) sends SUPER + CTRL + Q, the macOS lock shortcut; Solaar cannot divert it." }
+  ]
+}

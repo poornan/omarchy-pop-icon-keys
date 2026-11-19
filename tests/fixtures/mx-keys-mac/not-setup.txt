@@ -1,0 +1,23 @@
+solaar version 1.1.20
+
+  1: MX Keys for Mac
+     Device path  : None
+     WPID         : 4092
+     Codename     : MX Keys Mac
+     Kind         : keyboard
+     Protocol     : HID++ 4.5
+     Serial number: 00000000
+     Model ID:      B36140920000
+     Unit ID:       00000000
+     Supports 30 HID++ 2.0 features:
+         0: ROOT                   {0000} V0
+         1: FEATURE SET            {0001} V0
+         3: DEVICE NAME            {0005} V0
+            Name: MX Keys for Mac
+            Kind: keyboard
+         8: UNIFIED BATTERY        {1004} V2
+            Battery: 70%, BatteryStatus.DISCHARGING.
+         9: REPROG CONTROLS V4     {1B04} V5
+            Key/Button Diversion (saved): {Calculator:Diverted, Eject:Regular, Brightness Down:Regular, Brightness Up:Regular, Mission Control/Task View:Regular, Backlight Down:Regular, Backlight Up:Regular, Previous Track:Regular, Play/Pause:Regular, Next Track:Regular, Mute Sound:Regular, Volume Down:Regular, Volume Up:Regular, Dashboard Launchpad/Action Center:Diverted, Screen Capture/Print Screen:Regular, Screen Lock:Diverted}
+            Key/Button Diversion        : {Calculator:Regular, Eject:Regular, Brightness Down:Regular, Brightness Up:Regular, Mission Control/Task View:Regular, Backlight Down:Regular, Backlight Up:Regular, Previous Track:Regular, Play/Pause:Regular, Next Track:Regular, Mute Sound:Regular, Volume Down:Regular, Volume Up:Regular, Dashboard Launchpad/Action Center:Diverted, Screen Capture/Print Screen:Regular, Screen Lock:Regular}
+     Battery: 70%, BatteryStatus.DISCHARGING.

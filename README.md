@@ -8,6 +8,13 @@ Windows or macOS shortcuts, or nothing Linux understands. This plugin uses
 [Solaar](https://github.com/pwr-Solaar/Solaar) to catch those keys and run Omarchy
 commands instead.
 
+## Supported keyboards
+
+| Keyboard | Profile | Tested |
+|---|---|---|
+| POP Icon Keys | `profiles/pop-icon-keys.json` | **Yes, tested with real hardware** (Solaar 1.1.20, Bolt receiver, Linux OS mode) |
+| MX Keys for Mac | `profiles/mx-keys-mac.json` | **No** — drafted from Solaar's key table; please test and report |
+
 ![The POP Icon Keys bar widget open: battery, key map with each key routed, Solaar status, and the Re-apply setup and Refresh buttons](preview.png)
 
 | Key | Does |

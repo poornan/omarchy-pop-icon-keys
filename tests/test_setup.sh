@@ -493,7 +493,7 @@ check "removes the rest and says the diversion was not reset" "[[ $rc == 0 ]] &&
 echo "status helper on real solaar show output"
 new_home t12
 for case in routed dropped not-setup; do
-  FIXTURE="$ROOT/tests/fixtures/solaar-show-$case.txt" "$ROOT/bin/pop-icon-keys-status" >"$WORK/status-$case.out"
+  FIXTURE="$ROOT/tests/fixtures/pop-icon-keys/$case.txt" "$ROOT/bin/pop-icon-keys-status" >"$WORK/status-$case.out"
 done
 s() { grep "^$2=" "$WORK/status-$1.out" | cut -d= -f2-; }
 all="Show Desktop,MultiPlatform Search,Dictation,Emoji,Screen Capture"
