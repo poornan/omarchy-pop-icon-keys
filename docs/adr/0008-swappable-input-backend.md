@@ -15,8 +15,10 @@ reports every key as `unsupportedByBackend`. Its configuration is never written.
 The OpenLogi key-mapping writer is designed here but built later (see "Deferred
 slice S10").
 
-The owner's answers to the three open questions below (Q1 to Q3) are pending;
-the defaults stated there are what the plan builds.
+The owner answered the three open questions on 2026-11-19 (decisions D15 to D17,
+below); there are no open questions. Amended the same day with the facts read
+from the owner's live OpenLogi 0.9.0 install (agent installed, disabled, not
+running, never started by this work) and from the OpenLogi source.
 
 ## Context
 
@@ -39,6 +41,33 @@ backend, Solaar or OpenLogi (AprilNEA/OpenLogi, Rust, a systemd user agent
 - It installs from the AUR (builds from source) or a `curl | sh` installer, with
   `sudo` for udev rules (`INSTALL-linux.md`). The marketplace baseline forbids
   the plugin doing either.
+
+Live facts, read-only, 2026-11-19, OpenLogi 0.9.0 on the owner's machine (agent
+`openlogi-agent.service` installed but disabled and not running; recordings in
+`.dev-team-reports/openlogi-live/`):
+
+- `openlogi list` without the agent reads the hardware directly, works while
+  Solaar runs (read-only), and prints both receivers, slots, kind, wpid,
+  `model_ids` (POP `[b38f,0000,0000]`, MX Keys for Mac `[b361,4092,0000]`),
+  transports and battery. It has **no JSON form** (`openlogi list --help` shows
+  only `-h`); its output is a text table. It also shows the **stale 100 %** for
+  the POP, so it is no better than Solaar's query (ADR 0007).
+- `openlogi api` needs the agent (it has no hardware fallback). Its subcommands
+  are `status`, `devices`, `dpi`, `smartshift`, `fn-lock`, `os-layout`,
+  `report-rate` and `easy-switch`. There is **no key-binding or button-remap
+  subcommand**: bindings live only in the TOML config.
+- `openlogi fixture record|verify|contribute` records and validates
+  privacy-safe device fixtures (`record case` is a strict HID cassette of one
+  named read, `record profile` captures semantic state through the running
+  agent, `verify` checks a fixture directory).
+- OpenLogi reads the battery the way Solaar does (source, master:
+  `crates/openlogi-hidpp/src/feature/unified_battery.rs`): HID++ UnifiedBattery
+  `0x1004`, `getStatus` (function 1) and status event 0, with the same byte layout
+  as Solaar. Its agent re-reads the battery on every inventory poll
+  (`crates/openlogi-device/src/inventory/cache.rs`), never restores a saved
+  reading (`persist.rs`: it "would resurrect a stale value") and handles the
+  battery broadcast (`inventory/replay_tests.rs`, `battery_broadcast_refresh`).
+  There is no special battery command. This is the prior art for ADR 0007.
 
 The Solaar behaviour of ADR 0005 and 0007 (rules, `config.yaml` diversion, the
 `Device` condition, the battery notification rules) is correct but is one
@@ -105,7 +134,7 @@ in v0.4.0.
 ```
 {"schema": 1,
  "backend": {"name", "experimental", "installed", "running", "usable",
-             "problem", "liveKeyState", "otherRunning"},
+             "problem", "liveKeyState", "otherRunning", "canStart"},
  "keyboards": [{"slug", "name", "tested", "connected", "identity",
                 "battery": {"value", "level", "source", "at"},
                 "keys": [{"cid", "label", "state", "reason"?}], "bindings"}]}
@@ -122,8 +151,13 @@ in v0.4.0.
   read at `at`); `level` may be null.
 - `otherRunning` names the other backend when its daemon also runs; the widget
   warns that both own the receiver.
+- `canStart` is true only when the backend is installed, not running and has a
+  start that needs no consent: Solaar, started hidden (see "Widget: the backend
+  is not running" below). It is always false for OpenLogi: the plugin never
+  starts or stops OpenLogi's agent outside a consented switch.
 - Kept from ADR 0005 and 0007: Solaar identity by model id then exact name;
-  OpenLogi by exact name only (its API exposes no model id); exact parsing in
+  OpenLogi by exact name only (its API exposes no documented model id; see
+  "OpenLogi: the read side" for `openlogi list`); exact parsing in
   Python; action ids only (no profile string reaches YAML, TOML or Lua); every
   Solaar rule, battery rules included, has the `Device` `Or`; the `absent`
   meaning; legacy v0.3 migration stays inside the Solaar adapter.
@@ -147,7 +181,42 @@ From `CONFIGURATION.md`, `USAGE.md` and `INSTALL-linux.md`:
   launcher), `LockScreen`, `PreviousDesktop` and `NextDesktop` have documented
   behaviour.
 
-### OpenLogi: what the documents leave open (so it is not built)
+### OpenLogi: the read side (decision)
+
+`openlogi list` gives `model_ids` and works without the agent, but it prints a
+text table only, and the plugin never parses a text table. **Decision: the
+v0.4.0 read side uses `openlogi api status` and `openlogi api devices` only.**
+Consequences: it needs the agent, and on the owner's machine (agent disabled and
+not running, never started by this work) the backend reports `usable: false`,
+`problem: agentUnavailable`, which is the correct, honest answer; identity stays
+the exact device name. If OpenLogi adds a JSON form of `list`, or documents a
+model id in `api devices`, identity by model id becomes possible, and the read
+side may then use it (flagged in the unsettled list below). The device names
+printed by `openlogi list` are exactly `POP Icon Keys` and `MX Keys for Mac`
+(text-table evidence only; the `api devices` `name` is still unrecorded).
+
+### OpenLogi: what the documents leave open and what the live outputs settled
+
+Settled by the live outputs and the source:
+
+- **Item 1 (keyboard diversion on Linux): settled as "no, per the README".** The
+  platform table lists "Keyboard F-key remapping" as not available on Linux, and
+  `openlogi api` has no binding subcommand, so bindings could only be written into
+  the TOML. Keys therefore stay `unsupportedByBackend` and S10 is **gated on a
+  recorded proof** that a `control:0x<cid>` binding diverts a dedicated key on
+  the Linux build; without it S10 is not built.
+- **Item 8 (battery: notification or query): settled.** The agent re-reads on
+  every poll and handles the broadcast (see the live facts); a figure from
+  `api devices` is a fresh read at `at`, but it can still be the stale device
+  value, so it keeps source `backend` and is treated like a query (never "100 %",
+  "Full?").
+- **Item 10 (the text format of `openlogi list`): settled.** There is no JSON
+  form; the table is never parsed.
+- **Item 4 (the exact names): partly settled.** `list` prints `POP Icon Keys` and
+  `MX Keys for Mac`; the `api devices` `name` is recorded only once the owner
+  runs it with the agent up.
+
+Still open (not built until recorded):
 
 1. Whether keyboard-control diversion works on Linux at all (the platform table
    says no for "Keyboard F-key remapping").
@@ -156,7 +225,8 @@ From `CONFIGURATION.md`, `USAGE.md` and `INSTALL-linux.md`:
 3. Which `[devices."<key>"]` entry is a given keyboard (keys such as `unit:`,
    `serial:` or a route; identity and links are app-managed with no documented
    shape; no model id in the API).
-4. The exact `name` strings of the POP and MX keyboards (`name` may be null).
+4. The `api devices` `name` strings of the POP and MX keyboards (`name` may be
+   null; the `list` table's names are known, see above).
 5. Whether the agent reloads a hand edit without the GUI or a restart.
 6. The `config.toml.lock` protocol for external editors.
 7. Whether any API shows key or diversion state (none documented, hence
@@ -166,8 +236,11 @@ From `CONFIGURATION.md`, `USAGE.md` and `INSTALL-linux.md`:
 9. What `keep_os_layout` (default on) does on a Linux host: it may move
    keyboards out of MacOS OS mode on connect, which would break the profiles'
    `osMode` and the Lock chord `SUPER + CTRL + Q`; the current layout is not
-   readable through the API.
-10. The text format of `openlogi list` (never parsed; the API is used).
+   readable through the API. Decision D16: the plugin warns and documents this
+   and never changes `keep_os_layout`.
+10. ~~The text format of `openlogi list`~~ (settled, see above; new item: whether
+    OpenLogi will ever offer a JSON `list` or a model id in `api devices`, which
+    would allow identity by model id).
 11. Whether `diag controls` runs while the agent runs.
 12. Linux behaviour of `ShowDesktop`, `CaptureRegion` and `OpenApplication`.
 13. Flatpak (no user service; detected as not installed).
@@ -188,7 +261,10 @@ crash. After S10, reason `unverified` applies to a cid until
   `{"schema": 1, "version", "backend": "solaar", "switching": null, "profiles":
   [{slug, cids}], "artifacts": {"solaar": {"entries": {slug: [names]},
   "rulesBlock", "batteryRules", "autostartBlock"}, "hypr": {"bindingsBlock"},
-  "openlogi": {"entries": {}, "enabledService": false}}}`. This changes the
+  "openlogi": {"entries": {}, "enabledService": false, "disabledService": false}}}`
+  (`disabledService` is true when setup ran `disable --now` on the OpenLogi
+  service during a switch to Solaar, so the plan and uninstall can print the
+  re-enable command). This changes the
   unreleased schema 1 directly (no migration). With no `applied.json`, status
   shows what it detects, for display only.
 - **Selection by setup:** `--backend solaar|openlogi` given: that one (a
@@ -203,25 +279,33 @@ crash. After S10, reason `unverified` applies to a cid until
   rules); the D14 install note stays in the README, with no `curl | sh`.
 - **Consent plan additions:** the backend, the reason and an experimental
   badge; per keyboard each key as mapped, unsupported by `<backend>` (with the
-  reason) or absent; every daemon action (stop, start, enable, disable); for
-  OpenLogi a line that its configuration is not changed (v0.4.0); a warning
+  reason) or absent; every daemon action (stop, start, enable, disable; a switch
+  to Solaar lists `systemctl --user disable --now openlogi-agent.service` when
+  that service is enabled, because the user's OpenLogi install enabled it and it
+  would retake the receiver at next login); for OpenLogi a line that its configuration is not changed (v0.4.0); a warning
   about OpenLogi's OS-layout default; the OS mode precondition warning (spec
   AC28).
 - **Switching** is one consent and one plan, with a write-ahead
   `switching: {from, to}`: (1) write `applied.json` with `switching` set; (2) stop
   the old daemon; (3) the old backend's `plan_remove` (Solaar: reset the recorded
   cids in `config.yaml` while stopped, remove the rules block with its key and
-  battery rules, and the Solaar autostart block); (4) handle the old autostart
-  that conflicts (Q1); (5) start the new daemon (OpenLogi: enable the service if
+  battery rules, and the Solaar autostart block); (4) the old backend's autostart that
+  conflicts (decision D15): on a switch **to Solaar**, if the OpenLogi service is
+  enabled, run `systemctl --user disable --now openlogi-agent.service` (the plan
+  lists it; it runs only on `y`; a disabled service is not touched and not
+  listed; record `disabledService: true`); (5) start the new daemon (OpenLogi: enable the service if
   not enabled and record `enabledService: true`); (6) the new backend's
   `plan_apply`; (7) write `applied.json` with the new backend and `switching:
   null`. A failure before step 5 restarts the old daemon through the `on_exit`
-  trap; a re-run sees `switching` and finishes.
+  trap (for OpenLogi after step 4, `systemctl --user start`; the service stays
+  disabled); a re-run sees `switching` and finishes. Declining runs no
+  `systemctl` call at all.
 - **Uninstall** removes the artifacts of every backend recorded (a
   half-finished switch included), the Hyprland blocks, the battery state
   directory, the helpers and `applied.json`. It restarts only a daemon it
   stopped and disables only a service it enabled. It never uninstalls packages
-  and never re-enables the other backend (it prints the command).
+  and never re-enables the other backend, including a service a switch disabled
+  (it prints the command `systemctl --user enable --now openlogi-agent.service`).
 
 ### Schema changes (ADR 0005 amended)
 
@@ -246,8 +330,12 @@ crash. After S10, reason `unverified` applies to a cid until
 
 ### Deferred slice S10: the OpenLogi writer (designed, not built)
 
-Built only after the owner records fixtures from a real install, and not in
-v0.4.0 unless the recordings arrive before release. The design is a **chord
+**Decision Q2 (D17): v0.4.0 ships with OpenLogi read-only; S10 is v0.5.0** and
+is built only if two conditions hold: the owner records fixtures from a real
+install, and a recorded check shows that OpenLogi's Linux build honours
+keyboard dedicated-key bindings (its README says it does not, and `openlogi api`
+has no binding subcommand, so the writer would edit the TOML only). If the
+check fails, the keys stay `unsupportedByBackend` and S10 is dropped. The design is a **chord
 bridge**: each action in `lib/actions.json` gains a fixed `bridge` key (F13 to
 F19, validated unique). For each mapped key, setup writes the OpenLogi binding
 `"control:0x<cid>" = { CustomShortcut = "Super+Ctrl+Alt+F13" }` and, in this
@@ -259,17 +347,39 @@ in `applied.json` so removal works if the GUI rewrites comments; `tomllib`
 re-parses before the write; the agent is stopped and the GUI closed while
 `config.toml` is written, then the agent starts and setup checks `api status` and
 `api devices` for ok and ready; on failure the backup is restored (stated in the
-consent plan). Before S10 the owner re-records, masked: `openlogi --version`,
+consent plan). Fixtures: OpenLogi has its own privacy-safe fixture tool,
+`openlogi fixture record case|profile`, `verify` and `contribute`; the real
+OpenLogi fixtures use its directory format where it fits (checked with
+`openlogi fixture verify <dir>`), and the `api` JSON envelopes the contract tests
+read are stored beside them as `tests/fixtures/openlogi/*.json`. Until the owner
+records them the synthetic fixtures stay, labelled `synthetic: doc-derived
+USAGE.md @9ca7ef0`, and real ones replace them. Before S10 the owner records,
+masked: `openlogi --version`,
 `api status`, `api devices`, `~/.config/openlogi/config.toml` after the agent has
 seen both keyboards, `diag controls` for POP and MX, and `systemctl --user show
 openlogi-agent.service -p UnitFileState,ActiveState`.
+
+### Widget: the backend is not running
+
+Verified on the owner's machine: closing Solaar's window **quits** Solaar on
+Omarchy (no tray), and with it every diverted key. `backend.running` (already in
+the status contract) is therefore a prominent state, not a footnote: the popup
+leads with a banner in words ("Solaar is not running, so these keys do nothing")
+and the icon warns. When `backend.canStart` is true the banner carries a **Start
+Solaar** button. It runs `bin/logitech-keys-start`, which starts Solaar hidden
+(`setsid -f solaar --window=hide`; `-w, --window {show,hide,only}` read from
+`solaar --help`), changes no configuration, writes nothing and needs no consent
+beyond the click, and refuses when Solaar is already running or not installed.
+Auto-restore never runs while the backend is not running. The README tells the
+user to start Solaar hidden and not to close its window. OpenLogi never gets this
+button (`canStart` false); its agent problem copy stays as before.
 
 ## Considered options
 
 - **Solaar only (keep v0.3 scope).** Simplest and fully tested; rejected by the
   owner (D13), who wants the choice. It remains the default and the reference.
-- **OpenLogi only.** Rejected: its Linux keyboard remapping is unconfirmed (open
-  item 1), it is "not yet stable", and the POP and MX key behaviour is verified
+- **OpenLogi only.** Rejected: its Linux keyboard remapping is not available per its README
+  (item 1), it is "not yet stable", and the POP and MX key behaviour is verified
   only under Solaar.
 - **LogiOps (`logid`), considered and deferred.** From
   `.dev-team-reports/logiops-feasibility-2026-11-19.md` (snapshot
@@ -304,10 +414,14 @@ openlogi-agent.service -p UnitFileState,ActiveState`.
 - Risks: OpenLogi's OS-layout default may change the keyboards when the owner
   installs it; a TOML writer built on guessed rules could break the whole
   OpenLogi config (hence deferred, with rollback designed in).
+- Closing Solaar's window quits Solaar on Omarchy (there is no tray), which
+  kills all key routing; the widget shows this prominently and offers a start
+  action (next section).
 - Live checks only the owner can run: the battery rules writing the state file
   on a real notification (POP, MX over Unifying); MX key presses under Solaar;
-  with Solaar quit by hand, OpenLogi's device names, battery and whether the
-  keyboards leave MacOS mode when the agent connects; in a scratch config one
+  with Solaar quit by hand, `openlogi api devices` names and battery (with the
+  agent up) and whether the keyboards leave MacOS mode when the agent connects;
+  the Start Solaar action on a real quit Solaar; in a scratch config one
   `control:0x<cid>` binding (does it divert on Linux, and does Hyprland receive
   the uinput F13 chord); hand-edit reload without a restart; a real switch round
   trip with checksums.
@@ -319,19 +433,43 @@ native-action table; changing `keep_os_layout` automatically; Flatpak; a backend
 picker in the widget settings; a third backend (LogiOps) or a directory plugin
 contract.
 
-## Open questions for the owner (defaults in force)
+## Owner decisions (2026-11-19)
 
-- **Q1.** During an explicit switch to Solaar, may setup run `systemctl --user
-  disable openlogi-agent.service` (a service the owner's OpenLogi install
-  enabled, not this plugin)? The architect recommends yes. **Default until the
-  owner answers: no.** The switch does not run `disable` on a service this plugin
-  did not enable; the consent plan **prints the command** for the user to run and
-  warns that OpenLogi may retake the receiver at next login. The code path that
-  runs `disable` is not built.
-- **Q2.** If the OpenLogi recordings are not ready, ship v0.4.0 with OpenLogi
-  read-only, or wait for S10? The architect recommends shipping read-only and
-  S10 in v0.5.0. **Not decided here;** the v0.4.0 plan assumes read-only and the
-  release decision stays with the owner.
-- **Q3.** Under OpenLogi, should setup later write `keep_os_layout=off` through
-  `openlogi api os-layout --set off --save`? **Default: not in v0.4.0**; warn and
-  document, decide after the live check of the OS layout.
+All three former open questions are answered; none remain.
+
+- **D15 (Q1), yes, with consent.** Owner answer: yes, with consent. During an
+  explicit switch to Solaar, setup lists `systemctl --user disable --now
+  openlogi-agent.service` in the consent plan and runs it **only on y**, because
+  the user's OpenLogi install enabled the service and it would retake the
+  receiver at next login. The path is built and sandbox-tested with a `systemctl`
+  stub that logs calls; it never runs on the real machine. Uninstall still never
+  re-enables the service (it prints the command). It is the one place the plugin
+  disables a service it did not enable.
+- **D16 (Q3), not in v0.4.0.** Under OpenLogi, setup does not write
+  `keep_os_layout=off` (`openlogi api os-layout --set off --save`): it warns and
+  the README documents it. `keep_os_layout` is never changed by the plugin.
+- **D17 (Q2), read-only now, writer later.** The owner's words: "or we can refer
+  how they read battery and reproduce on ours". Checked in OpenLogi's source
+  (master): it uses the same HID++ UnifiedBattery `0x1004` `getStatus` and status
+  event 0 with the same byte layout as Solaar, re-reads on every poll, never
+  restores a saved reading and handles the battery broadcast; there is no special
+  command, and `openlogi list` shows the same stale 100 % for the POP. So
+  "reproduce on ours" is [ADR 0007](0007-battery-from-keyboard-notifications.md)
+  as designed (Solaar-rule capture of the broadcast, the query as fallback, a
+  query value never persisted as truth). v0.4.0 ships the OpenLogi backend
+  read-only and experimental; the release decision (ship read-only or wait for
+  S10) is answered: **ship read-only**, S10 in v0.5.0.
+
+## Unsettled, for the next architect pass
+
+- Whether OpenLogi's Linux build diverts dedicated keyboard keys at all (S10
+  gate); the `control:0x<cid>` spelling; which `[devices."<key>"]` entry is which
+  keyboard; reload and `config.toml.lock` protocol; `diag controls` while the
+  agent runs; `ShowDesktop`, `CaptureRegion` and `OpenApplication` on Linux.
+- Identity by model id for OpenLogi: possible only if `openlogi list` gains a
+  JSON form or `api devices` exposes a model id (neither is the case in 0.9.0);
+  exact name only until then.
+- The `api devices` `name` strings and battery `level` vocabulary (recorded once
+  the owner runs the command with the agent up).
+- The real fixture format: whether `openlogi fixture record profile` output can
+  feed the contract tests directly or only through an adapter.

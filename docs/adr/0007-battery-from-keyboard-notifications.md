@@ -39,6 +39,19 @@ Verified on 2026-11-19 on the owner's POP Icon Keys with Solaar 1.1.20:
   reads `data[:3]` as discharge percentage, next level, status, so a
   `TestBytes [0, 1, lo, hi]` on byte 0 works for both features.
 
+Prior art (D17, read in OpenLogi's source on master, 2026-11-19): the owner
+suggested "or we can refer how they read battery and reproduce on ours".
+OpenLogi uses the same HID++ UnifiedBattery `0x1004` `getStatus` (function 1)
+and status event 0 with the same byte layout as Solaar
+(`crates/openlogi-hidpp/src/feature/unified_battery.rs`). Its agent re-reads the
+battery on every inventory poll (`crates/openlogi-device/src/inventory/cache.rs`),
+never restores a saved reading (`persist.rs`: it "would resurrect a stale
+value") and handles the battery broadcast
+(`inventory/replay_tests.rs`, `battery_broadcast_refresh`). It has no special
+battery command, and `openlogi list` showed the same stale 100 % for the POP.
+So reproducing it here is this ADR as designed: capture the broadcast (Solaar
+rules), query only as a fallback, and never persist a query as the truth.
+
 Alternatives: parse Solaar's log (no DEBUG lines, `/tmp`), run Solaar with `-d`
 (noisy, changes the user's setup), query only (stale, the problem above), poll
 `solaar show` more often (still the stale query).
@@ -66,6 +79,12 @@ Use Solaar rules to observe the keyboard's battery notifications.
   report's `value` is its bucket midpoint.
 - The widget shows "≈15%" and the report's age for a report, and "Full?", not a
   confident 100 %, when only the query says 100.
+- **Only reports are persisted.** `bin/logitech-keys-battery` (called by the
+  rules, so only from a keyboard report) is the only writer of
+  `$XDG_STATE_HOME/logitech-keys/battery/`. A query result (Solaar's
+  `solaar show`, or an OpenLogi `api devices` figure) is shown with source
+  `query` or `backend`, is never written to that directory and so can never be
+  read back later as if it were a report.
 - `uninstall` removes the plugin's state directory, battery files included.
 
 ## Consequences
