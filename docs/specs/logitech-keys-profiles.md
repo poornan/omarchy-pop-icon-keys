@@ -72,7 +72,9 @@ Concretely:
 7. **An accurate battery figure.** A fresh Solaar query right after connect
    returned "100% charged" for a keyboard whose own later report said 15%, so
    the widget uses the keyboard's own battery notifications, not the stale
-   direct query (D11; ADR 0007).
+   direct query (D11; ADR 0007). The last report is kept, with its age, across
+   reconnects and Solaar restarts; only a newer report or a lower query value
+   replaces it (D18).
 
 8. **A swappable backend** (D13, ADR 0008): the program that owns the receiver is
    either Solaar or OpenLogi, one per machine, chosen by setup and recorded.
@@ -299,9 +301,8 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   restore. Names are resolved through the injected key table
   by cid where one is available. `keyboards` are sorted by slug, `keys` are in
   profile order, `battery` is null or `{value, level, source, at}`
-  (see **Battery**; `level` may be null; the report's freshness rule is one function,
-  `report_is_fresh(report_at, connected_at)`, so that its pending owner decision,
-  ADR 0007, is a one-line change). A keyboard that is paired but
+  (see **Battery**; `level` may be null; the report-or-query rule is one function,
+  `choose_battery(report, query)`, ADR 0007, D18). A keyboard that is paired but
   offline is not listed. The bash helper `bin/logitech-keys-status` only runs it
   and always exits 0 with valid JSON.
 - **Rules:** one marked block in `rules.yaml` with the rules of every applied
@@ -341,12 +342,19 @@ Flatpak OpenLogi, a backend picker in the widget settings, and a third backend
   never restores a saved reading and handles the battery broadcast (ADR 0007);
   `openlogi list` showed the same stale 100 % for the POP, and there is no
   special battery command, so this design is the "reproduce it on ours" the owner
-  asked for. It prefers a report newer than the
-  keyboard's last connect, else the query value with source `query`. For a
+  asked for. **Selection rule (D18, owner-decided,
+  "Keep last report (Recommended)"):** the latest report is kept and shown with
+  its age across reconnects and Solaar restarts until a newer report arrives or a
+  query returns a **lower** value (then the query value, source `query`); a query
+  equal to or higher than the report never replaces it; with no report the query
+  value is shown. One function, `choose_battery(report, query)`, holds the rule;
+  the keyboard's last connect is not an input. Stated risk the owner accepted:
+  after new batteries the widget shows the old low value until the keyboard
+  reports again. For a
   report `value` is the bucket's midpoint (`lo` + 5, so 10–19 shows "≈15%"); for
   the query it is the exact figure. The widget shows "≈15%" with the report's
   age for reports, and **"Full?"** (never a confident 100 %) when only the query
-  says 100. Uninstall removes the plugin's state directory
+  says full or 100. Uninstall removes the plugin's state directory
   (`applied.json` and `battery/`). Whether Solaar reloads the rules without
   a restart is unverified; setup restarts it anyway, and live verification is
   left to the owner. The helper, the state file and the status JSON are
@@ -724,15 +732,24 @@ below are therefore AC24 onward.
   never writes under `/tmp`. The slug list comes from the profile reader.
 - **AC32 —** (battery status) The status JSON `battery` is null or
   `{value, level, source, at}` per keyboard (`level` may be null; for the Solaar
-  backend `source` is `report` or `query`, for OpenLogi `backend`, AC37). A report newer than the keyboard's last
-  connect wins and has `source` `report` and `value` = bucket lower bound + 5;
-  otherwise the `solaar show` figure is used with `source` `query`; no data
-  gives null. Tests cover the owner's case (report 15, query 100) and a missing
-  or damaged battery file. A query or backend figure is never persisted (AC52).
-- **AC33 —** (battery widget) The popup shows "≈15%" with the report's age for a
-  report, the exact figure for a query or backend figure below 100, and "Full?"
-  (not "100%") when only the query or the backend says 100; "Battery unknown" for
-  null. The widget logic test
+  backend `source` is `report` or `query`, for OpenLogi `backend`, AC37). The
+  one function `choose_battery(report, query)` (D18) keeps the latest report
+  (`source` `report`, `value` = bucket lower bound + 5, `at` its time) across
+  reconnects and Solaar restarts, whatever its age, unless the query value is
+  **lower** than the report's value, in which case the query figure is used with
+  `source` `query`. A query equal to or higher than the report never replaces it
+  (the owner's case: report 15, query 100 shows the report); a newer report
+  replaces an older one; with no report the `solaar show` figure is used with
+  `source` `query`; no data gives null. `connected_at` is not an input. Tests
+  cover each of these cases and a missing or damaged battery file. A query or
+  backend figure is never persisted (AC52).
+- **AC33 —** (battery widget) The popup shows "≈15%" with the report's age (for
+  example "≈15%, 3 h ago") for a report, the exact figure for a query or backend
+  figure below 100 (no age; this includes a query that is lower than the report
+  and so won, AC32), and "Full?" (not "100%") when only the query or the backend
+  says full or 100; "Battery unknown" for null. The README states the accepted
+  limitation (D18): a new report arrives soon after fitting batteries, and
+  Restore or Refresh does not force one (a keyword test). The widget logic test
   covers each case.
 - **AC34 —** (battery cleanup) `uninstall` removes the plugin's state directory,
   including `battery/`, and nothing else; a dry run removes nothing; the plan
@@ -934,7 +951,7 @@ below are therefore AC24 onward.
 | Key table snapshot | `tests/solaar_control_1.1.20.json`: Solaar 1.1.20's name-to-cid table, committed so CI can run the cross-check without Solaar | `verified` | Plan review (acceptance A3) |
 | MacOS OS mode | Keyboard setting (Solaar "Set OS" = MacOS) in which Cmd sends Super, Opt sends Alt and Lock sends `Super+Ctrl+Q`; both shipped keyboards run in it. "Linux OS mode" was an earlier error | `verified` | Owner, 2026-11-19: `solaar show` "Set OS: MacOS", `config.yaml` `multiplatform: 1` (D10) |
 | Device data (of a profile) | A profile's model id, names, key names and cids, as read from hardware. The MX profile's are verified from the recorded fixture; its key presses are not | `verified` | Owner-supplied recording, 2026-11-19 |
-| Battery report | A battery notification sent by the keyboard itself, seen by a Solaar rule and stored by `bin/logitech-keys-battery`; preferred over the direct query, which can be stale | `verified` | Owner, 2026-11-19 (15% vs 100%); ADR 0007 |
+| Battery report | A battery notification sent by the keyboard itself, seen by a Solaar rule and stored by `bin/logitech-keys-battery`; kept over a direct query that is equal or higher (the query can be stale), replaced only by a lower query (D18) | `verified` | Owner, 2026-11-19 (15% vs 100%); ADR 0007 |
 | Backend | The program that owns the receiver and routes keys: Solaar (tested reference) or OpenLogi (experimental, read-only in v0.4.0). One active per machine, recorded in `applied.json`; each is a `lib/backends/<name>.py` and `.sh` pair | `verified` | Owner D13; ADR 0008 |
 | unsupportedByBackend | Key state: the active backend cannot route this cid (reason `notImplemented` or `unverified`). A backend fact, unlike `absent` (a profile fact: the keyboard does not report the cid); both are dimmed and neither counts toward the warning | `verified` | ADR 0008 (architect design) |
 | liveKeyState | Backend flag: whether it can read which keys are diverted right now. Solaar true; OpenLogi false, so `dropped` is never emitted and no restore is offered | `unverified` | ADR 0008; OpenLogi open item 7 (no documented API shows key state) |
@@ -990,7 +1007,7 @@ alternative is stated and ruled out by the source named.
 | 31 | Route all dev work through `dev-team:orchestrator` (D9) | `requires-stakeholder-input` | human (B) | Process row, no AC. Owner: "always invoke through orchestrator". Recorded in `.claude/CLAUDE.md`. |
 | 32 | Keyboards run in MacOS OS mode, not Linux (D10) | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner screenshot; verified `Set OS: MacOS` on both keyboards. Every "Linux OS mode" claim in specs, ADR 0002 and `CLAUDE.md` was wrong and is fixed; POP `verified.osMode` is "MacOS". The README requirement (users set Set OS = MacOS in Solaar; behaviour otherwise untested) is AC27. A read-only setup check that warns and never changes the mode is AC28 (inferable: the plugin never changes a hardware setting the user owns; blocking is ruled out because other modes are untested, not known bad). |
 | 33 | F8 / Screen Capture = region screenshot, overriding the macOS column (D12) | `requires-stakeholder-input` | human (B) | Owner chose "Region (keep current)" (POP spec row 1). The MX Screen Capture/Print Screen key follows (AC3). |
-| 34 | Accurate battery: use the keyboard's own battery notifications (D11) | `requires-stakeholder-input` | human (B, 2026-11-19) | Owner chose battery from Solaar's own reports ("Read Solaar's own log"). The log gets no DEBUG lines (`solaar/gtk.py` sets INFO/WARNING for the temp log), so it is implemented with Solaar rules on battery notifications. ADR 0007, AC30–AC34. Inferable details (alternative ruled out by the Solaar source in ADR 0007): 10 % buckets, helper writes a state file, "Full?" instead of a confident 100 %. Known limit: a report older than the keyboard's last connect is ignored, so after a reconnect the figure falls back to the query until the next report; the widget shows the report's age so staleness is visible. |
+| 34 | Accurate battery: use the keyboard's own battery notifications (D11) | `requires-stakeholder-input` | human (B, 2026-11-19) | Owner chose battery from Solaar's own reports ("Read Solaar's own log"). The log gets no DEBUG lines (`solaar/gtk.py` sets INFO/WARNING for the temp log), so it is implemented with Solaar rules on battery notifications. ADR 0007, AC30–AC34. Inferable details (alternative ruled out by the Solaar source in ADR 0007): 10 % buckets, helper writes a state file, "Full?" instead of a confident 100 %. Known limit (superseded by row 56): the first design ignored a report older than the keyboard's last connect; D18 replaced that rule. |
 | 35 | Swappable backend now: Solaar or OpenLogi (D13) | `requires-stakeholder-input` | human (B) | Owner: "use swappble dependency either solaar or openlogi"; chose "Swappable backend now" over Solaar-now/backend-later, trial-first or shrink. **Resolved by the owner; specified in [ADR 0008](../adr/0008-swappable-input-backend.md) (accepted) and AC35–AC48.** Solaar is the tested reference and OpenLogi ships read-only and experimental in v0.4.0 (rows 40–41). |
 | 36 | Install OpenLogi (D14) | `requires-stakeholder-input` | human (B) | Owner: "install OpenLogi ... Check OpenLogi for installation details". Install note only: AUR `openlogi`, then `sudo udevadm control --reload && sudo udevadm trigger` and `systemctl --user enable --now openlogi-agent.service`; the owner runs the sudo steps; the plugin never installs it and the `curl | sh` installer is not used (marketplace baseline). |
 | 37 | D15 (was Q1): during an explicit switch to Solaar, may setup run `systemctl --user disable openlogi-agent.service` (a service the owner's OpenLogi install enabled, not this plugin)? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner answered **yes, with consent** (summarised in the instruction that recorded it; the quote is not stored verbatim). Built: on a switch to Solaar, when the service is enabled, the plan lists `systemctl --user disable --now openlogi-agent.service` with the reason and setup runs it only on `y`; sandbox-tested with a logging `systemctl` stub, never on the real machine. Uninstall still never re-enables it (it prints the command); `disabledService` is recorded. Replaces the earlier default of "print the command only". AC41, AC42, AC43, AC48; ADR 0008. |
@@ -1012,6 +1029,7 @@ alternative is stated and ruled out by the source named.
 | 53 | Truncated, crashed or timed-out output is `unknown`, a sixth key state with a `readProblem`; not disconnected, not set up, not counted toward the warning, never restored (AC54, AC55) | `requires-stakeholder-input` | human (owner finding, same instruction, 2026-11-19) | Decided in the instruction that recorded the owner's finding (summarised, the quote is not stored verbatim): devices not yet printed are "unknown", never disconnected or not set up, and the widget shows it. Inferable details: only a keyboard known to Solaar (a saved entry) is shown as unknown (the plugin cannot claim a keyboard exists on a failed call); a device block is complete when the next header follows it or the call exited 0; `no device found matching` is a clean "not present". The alternative of reusing `absent` is ruled out: it means "the keyboard does not report this cid", a profile fact. |
 | 54 | Synthetic truncation fixture built in the test from the recorded POP fixture and the traceback text (AC56) | `inferable` | test-fixtures rule: one recorded fixture per profile | Recording the crash is not possible per profile (it depends on another device on the machine); the synthetic fixture is labelled and never counts as verification (AC19). |
 | 55 | README known-issues note on the Solaar host-name bug (AC57) | `inferable` | owner instruction | Documentation of a known upstream bug and the workaround; no behaviour choice. |
+| 56 | D18: which battery figure wins when the keyboard's last report is older than its last connect or a query disagrees? | `requires-stakeholder-input` | human (owner, 2026-11-19) | Owner chose "Keep last report (Recommended)" over ignoring reports older than the last connect. Rule: the latest report is shown with its age across reconnects and Solaar restarts until a newer report arrives or a direct query returns a **lower** value (then the query value, source `query`); a query equal to or higher never replaces it. **Stated risk the owner accepted:** after new batteries the widget shows the old low value until the keyboard reports again; the README says a new report arrives soon after fitting batteries and Restore/Refresh does not force one. Replaces the "ignore reports older than last connect" rule, so `connected_at` is no longer an input. One function `choose_battery(report, query)` holds the rule. ADR 0007, AC32, AC33. Numbering of the criteria is unchanged. |
 
 ## Consistency Gate
 
@@ -1038,9 +1056,12 @@ AC42, AC43 and AC48 amended, `canStart` and `disabledService` added, rows 47–5
 and after the Solaar crash pass of 2026-11-19: criteria AC53–AC57 added, Intent
 item 10, the Architecture text for `collect`, identity, status and the widget
 amended, glossary terms `unknown` and Selector, rows 51–55, and the D17
-confirmation quote added to row 38).
+confirmation quote added to row 38; and after the battery decision of
+2026-11-19: D18 resolved in row 56, the freshness rule replaced by "keep the last
+report unless a query is lower", the Battery architecture text, AC32 and AC33
+amended and row 34 annotated).
 Mechanical checks of this pass: every AC id AC1–AC57 appears once as a heading
 entry; each of AC35–AC57 is referenced by a plan criterion; every ADR and row
 cited exists. **Open stakeholder questions: none.** Q1 to Q3 are D15 to D17
-(rows 37–39); rows 13, 15, 22–28 and 40–50 remain overridable by the owner. Live
+(rows 37–39) and D18 is row 56; rows 13, 15, 22–28 and 40–50 remain overridable by the owner. Live
 checks only the owner can run are listed in ADR 0008.
