@@ -5,7 +5,9 @@ Date: 2026-11-19
 ## Status
 
 Accepted. Amended after the architect review of 2026-11-19 (identity, actions,
-`Device` rule, applied state, `absent`, schema field, non-goals). Rename:
+`Device` rule, applied state, `absent`, schema field, non-goals) and again after
+the plan review of the same day (module layout, applied-record order and
+content, injected key table, escaping, restore, two-phase setup). Rename:
 [ADR 0006](0006-rename-to-logitech-keys.md).
 
 ## Context
@@ -51,9 +53,33 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
   another keyboard, and a hand-diverted key on an unprofiled keyboard does not
   trigger the plugin's rule. `classify()` recognises the new and v0.3 shapes.
 - **Applied state.** `$XDG_STATE_HOME/logitech-keys/applied.json` records slug,
-  control ids and plugin version per applied profile. Setup reconciles against
-  it (a removed id is reset and its rule deleted); uninstall resets from it and
-  deletes it. Comments in rules are not state.
+  control ids, the matched saved entry names and model ids, and the plugin
+  version per applied profile. Setup writes the union of the old and new ids
+  before the diversion and the final ids afterwards, so a stop in between still
+  lets uninstall reset everything (resetting a never-diverted id is harmless);
+  it reconciles against the record (a removed id is reset and its rule deleted).
+  Uninstall resets from it, even for a profile that no longer ships, and deletes
+  it. The record is written atomically with no `.bak`; a damaged or newer record
+  stops setup and uninstall before any change. Comments in rules are not state.
+- **Module layout.** `lib/edit.py` is the command line only. One module owns each
+  concern: `lib/solaarcfg.py` (the one device-to-profile matcher and
+  `config.yaml` entry parsing), `lib/fileedit.py` (read, back up, atomic write,
+  marked blocks with the mark as a parameter), `lib/diversion.py`,
+  `lib/rules.py` (rule and Lua generation, classification and **all escaping**:
+  YAML flow, Lua string and shell argument, one function each),
+  `lib/applied.py`, `lib/legacy.py` (the single frozen v0.3 table) and
+  `lib/plan.py` (the consent plan as data). `lib/profiles.py` stays pure data
+  with the profile folder as an argument. Bash knows no keyboard.
+- **Key table.** The cross-check against Solaar's key table takes the table as an
+  injected parameter: the installed Solaar's `CONTROL`, else a snapshot committed
+  with the tests so CI stays stdlib-only. On the development machine the
+  Solaar-dependent checks run with zero skips.
+- **Restore.** Restore addresses the keyboard by the matched device block's exact
+  printed name and skips a keyboard whose name is contained in another device's
+  name; it never writes a config file.
+- **Setup is two-phase.** Resolve the profile set first (one start-record-stop
+  when Solaar knows no profiled keyboard), then apply that set idempotently with
+  the rules in place before the diversion.
 - **Permanent slugs.** A released slug is never renamed or reused for another
   model.
 - **`absent` state.** A key in neither diversion line is `absent`: dimmed, and
