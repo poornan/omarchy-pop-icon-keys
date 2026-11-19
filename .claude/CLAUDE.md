@@ -7,15 +7,19 @@ cannot divert (POP Icon Keys Lock), and shows one bar widget with battery and
 routing status per keyboard. Keyboards are described by profile files
 (`profiles/<slug>.json`); shipped: POP Icon Keys (tested) and MX Keys for Mac
 (untested). Repo `github.com/poornan/omarchy-logitech-keys` (renamed on GitHub
-later by the owner; the old name is `omarchy-pop-icon-keys`); listed in the
-Omarchy plugin marketplace (omacom/omarchy-plugin-marketplace).
+later by the owner; the old name is `omarchy-pop-icon-keys`); prepared for
+submission to the Omarchy plugin marketplace (omacom/omarchy-plugin-marketplace),
+not yet submitted (v0.3 was only installed from a local path by the owner).
 
 ## Stack
 
 - **Bar widget:** QML on Quickshell (Omarchy 4.x shell). Entry point `Panel.qml`,
   declared in `manifest.json` (`kinds: ["bar-widget"]`).
 - **Install scripts:** bash (`setup`, `uninstall`, `lib.sh`) with Python 3
-  helpers in `lib/edit.py` (stdlib + PyYAML, run as `python3 -I`).
+  helpers (stdlib + PyYAML, run as `python3 -I`): `lib/edit.py` is the command
+  line only; `lib/solaarcfg.py` (the one device matcher), `lib/fileedit.py`,
+  `lib/diversion.py`, `lib/rules.py` (all escaping), `lib/applied.py`,
+  `lib/legacy.py` (frozen v0.3 table), `lib/plan.py` (consent plan as data).
 - **Profiles and actions:** `profiles/*.json`, `lib/actions.json`, read only by
   `lib/profiles.py` (stdlib). `lib/status.py` builds the widget's JSON.
 - **Helpers:** `bin/logitech-keys-*` (status, restore, show-desktop).
@@ -30,15 +34,22 @@ Omarchy plugin marketplace (omacom/omarchy-plugin-marketplace).
 | Syntax check | `for f in setup uninstall lib.sh bin/*; do bash -n "$f"; done` |
 | Profile schema and fixtures | `python3 -I tests/test_profiles.py` |
 | Status parsing | `python3 -I tests/test_status.py` |
-| Rule generation, classify, reconcile | `python3 -I tests/test_edit.py` |
+| Rules, classify, escaping, Solaar loader | `python3 -I tests/test_rules.py` |
+| Diversion, applied record | `python3 -I tests/test_state.py` |
+| Consent plan | `python3 -I tests/test_plan.py` |
+| edit.py command line | `python3 -I tests/test_edit.py` |
+| Repository structure (CI files, allowlists) | `python3 -I tests/test_repo.py` |
 | Setup/uninstall sandbox tests | `bash tests/test_setup.sh` |
-| Widget logic tests | `python3 tests/qml_logic.py` |
+| Widget logic tests | `python3 tests/qml_logic.py` (`--pure` runs the stdlib part only) |
 | QML lint | `/usr/lib/qt6/bin/qmllint Panel.qml` (unresolved `qs.*` import warnings are expected) |
 | Dry run against real config | `./setup --dry-run` (read-only) |
 | Plan waves | `python3 ~/.claude/plugins/cache/agentic-dev-team/dev-team/14.3.0/scripts/plan_waves.py plans/<slug>.md` |
 
 shellcheck is not installed on the dev machine. Run every check above before
-committing. CI (`.github/workflows/`) runs the stdlib and sandbox tests, not
+committing, with `LK_REQUIRE_SOLAAR=1` on the Python tests: a skipped Solaar
+check is a failure on the dev machine (CI uses a pinned key-table snapshot).
+Every slice and every commit leaves the tree and `bash tests/test_setup.sh`
+green. CI (`.github/workflows/`) runs the stdlib and sandbox tests, not
 the QML ones (they need quickshell).
 
 ## Rules
