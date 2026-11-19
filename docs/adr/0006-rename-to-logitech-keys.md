@@ -4,7 +4,7 @@ Date: 2026-11-19
 
 ## Status
 
-Accepted
+Accepted. Stands unchanged under owner decision D19 ([ADR 0009](0009-slim-v0-4-0-scope.md)).
 
 ## Context
 
@@ -22,9 +22,10 @@ devices' special buttons, and the id must not tie the plugin to Solaar.
 - Marker text `logitech-keys` in config blocks (`# BEGIN logitech-keys`,
   `-- BEGIN logitech-keys`); helpers `bin/logitech-keys-*`; state directory
   `logitech-keys`; `ipcTarget` and `moduleName` `logitech-keys`.
-- No deprecation release of the old id. `setup` migrates v0.3 blocks and legacy
-  rules and warns if the old plugin is still installed (see the spec, AC8 and
-  AC17).
+- No deprecation release of the old id. `setup` removes the v0.3
+  `pop-icon-keys` marked blocks and the old helper (with consent) and warns if
+  the old plugin is still installed (spec AC8; detecting v0.3 rules that
+  Solaar's editor rewrote without markers is deferred by D19, ADR 0009).
 
 ## Consequences
 

@@ -4,11 +4,14 @@ Date: 2026-11-19
 
 ## Status
 
-Accepted. Amended for [ADR 0008](0008-swappable-input-backend.md): the battery
-rules are the **Solaar backend's** implementation detail, and the status battery
-`source` gains `backend`. Amended 2026-11-19 by owner decision D18 (see
-Decision): the report is kept across reconnects and a lower query replaces it;
-the earlier rule that ignored a report older than the last connect is withdrawn.
+Accepted. Amended 2026-11-19 by owner decision D18 (see Decision): the report is
+kept across reconnects and a lower query replaces it; the earlier rule that
+ignored a report older than the last connect is withdrawn. Amended again by
+owner decision D19 ([ADR 0009](0009-slim-v0-4-0-scope.md), "Slim, keep
+battery"): the battery stays, is **Solaar rules only** (the backend seam of
+[ADR 0008](0008-swappable-input-backend.md) is deferred, so there is no
+`backend` source and no per-backend wording), and the battery files are the only
+state this plugin keeps.
 
 ## Context
 
@@ -78,13 +81,11 @@ Use Solaar rules to observe the keyboard's battery notifications.
   writes nothing under `/tmp`. The age text in the widget is a pure function of
   the report time and an injected `now` (plan review round 6).
 - The status JSON carries `battery` as null or `{value, level, source, at}`
-  (`level` may be null), with `source` `report` or `query` (Solaar backend) or
-  `backend` (the figure another backend's daemon cached, read at `at`, for
-  example OpenLogi's `openlogi api devices` battery). **Selection rule (D18,
-  owner-decided):** the latest keyboard report is kept and shown with its age,
-  across reconnects and Solaar restarts, until either a newer report arrives or a
-  direct query (or backend figure) returns a **lower** value, in which case the
-  query value is shown with source `query` (or `backend`). A query value equal to
+  (`level` may be null), with `source` `report` (the state file) or `query`
+  (`solaar show`). **Selection rule (D18, owner-decided):** the latest keyboard
+  report is kept and shown with its age, across reconnects and Solaar restarts,
+  until either a newer report arrives or a direct query returns a **lower**
+  value, in which case the query value is shown with source `query`. A query value equal to
   or higher than the report never replaces it. With no report, the query figure
   is shown. The owner chose this ("Keep last report (Recommended)") over ignoring
   a report older than the last connect, knowing the stated risk below. The rule
@@ -98,10 +99,9 @@ Use Solaar rules to observe the keyboard's battery notifications.
   source `query` and no report age.
 - **Only reports are persisted.** `bin/logitech-keys-battery` (called by the
   rules, so only from a keyboard report) is the only writer of
-  `$XDG_STATE_HOME/logitech-keys/battery/`. A query result (Solaar's
-  `solaar show`, or an OpenLogi `api devices` figure) is shown with source
-  `query` or `backend`, is never written to that directory and so can never be
-  read back later as if it were a report.
+  `$XDG_STATE_HOME/logitech-keys/battery/`. A query result (Solaar's `solaar
+  show`) is shown with source `query`, is never written to that directory and so
+  can never be read back later as if it were a report.
 - `uninstall` removes the plugin's state directory, battery files included.
 
 ## Consequences
@@ -120,9 +120,13 @@ Use Solaar rules to observe the keyboard's battery notifications.
 - Live verification needs Solaar to reload the rules; setup restarts it, but the
   end-to-end result on the owner's keyboards is unverified and left to the owner.
   The rule evaluation itself is tested with Solaar's own rule code.
-- The helper, the state file and the status JSON do not depend on Solaar. Only
-  the generated rules do, and ADR 0008 makes them an implementation detail of the
-  Solaar backend (`lib/backends/solaar.py`); the rules, their classification and
-  their removal belong to that backend's plan. The OpenLogi backend does not
-  write rules or the state file: it reads the battery from its agent
-  (`source` `backend`).
+- The helper and the state file do not depend on Solaar; only the generated
+  rules do. They belong to the one rules module and are classified, replaced and
+  removed with the other managed rules.
+- **Accepted risk, written in the README:** the rules are a design checked
+  against Solaar's source, not yet seen working on a real notification, so the
+  README labels the battery "unverified until live-checked" until the owner's
+  live check (a precondition for tagging v0.4.0).
+- Under D19 the helper is a self-contained script (no import of plugin
+  modules), so the copy setup installs to `~/.local/bin` works without the plugin
+  folder; it accepts only a slug of lowercase letters, digits and single hyphens.

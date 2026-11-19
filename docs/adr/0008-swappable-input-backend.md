@@ -4,25 +4,45 @@ Date: 2026-11-19
 
 ## Status
 
-Accepted. The owner chose "Swappable backend now" (decision D13: "use swappble
-dependency either solaar or openlogi"); the design is the architect's
-(`.dev-team-reports/architect-backend-design-2026-11-19.md`, not committed).
-Depends on [ADR 0005](0005-device-profiles-for-other-keyboards.md) (profiles)
-and [ADR 0007](0007-battery-from-keyboard-notifications.md) (battery). In
-**v0.4.0 the OpenLogi backend is experimental and read-only**: it detects the
-agent, matches keyboards by exact name and shows battery and backend status, and
-reports every key as `unsupportedByBackend`. Its configuration is never written.
-The OpenLogi key-mapping writer is designed here but built later (see "Deferred
-slice S10").
+**Deferred (owner decision D19, 2026-11-19).** Not built in v0.4.0. The owner
+chose "Slim, keep battery" over "Slim, drop battery" and "Full plan" after
+seeing that Solaar's own GUI already covers key diversion dropdowns and a rule
+editor with Execute actions, so the plugin's value is ready-made presets, the
+restore of keys the keyboard drops, Start Solaar and an accurate battery, not a
+second program to own the receiver. See [ADR 0009](0009-slim-v0-4-0-scope.md).
 
-The owner answered the three open questions on 2026-11-19 (decisions D15 to D17,
-below); there are no open questions. Amended the same day with the facts read
-from the owner's live OpenLogi 0.9.0 install (agent installed, disabled, not
-running, never started by this work) and from the OpenLogi source. Amended again the same day for the owner's finding
-that plain `solaar show` crashes on this machine ("The Solaar backend queries one
-device at a time", below). Amended a fourth time after the plan-review round 6
-(module layout, typed plan steps, one writer of the applied record, copy; see
-"Module layout after plan review (round 6)", below).
+Reasons for deferring, in order of weight:
+
+- **OpenLogi cannot remap keyboard keys on Linux.** Its README marks "Keyboard
+  F-key remapping" as not available on Linux, `openlogi api` has no binding
+  subcommand, and a recorded proof that its Linux build honours keyboard
+  dedicated-key bindings does not exist. Without a writer, the OpenLogi backend
+  could only report every key as unsupported, which is a large amount of seam,
+  switching and test code for a read-only battery figure.
+- It owns a receiver exclusively with Solaar, so a backend switch needs a
+  write-ahead record, service enable and disable, and a resumable state machine:
+  the riskiest code in the plan, for no key the owner can use.
+- The owner's keyboards work with Solaar today, and the same battery fix
+  (ADR 0007) is Solaar rules only.
+
+Nothing below is deleted: it is the design to pick up if OpenLogi gains Linux
+keyboard remapping (revisit then; the live OpenLogi 0.9.0 facts and the open
+items below are kept). The decision D15 (`disable --now` on a switch to Solaar),
+D16 (never change `keep_os_layout`) and D17 (OpenLogi read-only first) were
+answers to questions this deferral makes moot; they stay recorded in the spec's
+Ambiguity Log. The architect's design file
+(`.dev-team-reports/architect-backend-design-2026-11-19.md`, not committed) is
+kept as reference. **Everything under this heading is a deferred design, not a
+description of v0.4.0.** The earlier status text follows for the record.
+
+Earlier status: accepted. The owner chose "Swappable backend now" (decision D13:
+"use swappble dependency either solaar or openlogi"); the design is the
+architect's. Depends on [ADR 0005](0005-device-profiles-for-other-keyboards.md)
+(presets) and [ADR 0007](0007-battery-from-keyboard-notifications.md) (battery).
+It was amended five times on 2026-11-19 (D15 to D17, the live OpenLogi 0.9.0
+facts, the Solaar `show` crash and per-device queries, and the module layout
+after plan review round 6); the per-device query design survives, simplified, in
+ADR 0005.
 
 ## Context
 
