@@ -8,6 +8,8 @@ Windows or macOS shortcuts, or nothing Linux understands. This plugin uses
 [Solaar](https://github.com/pwr-Solaar/Solaar) to catch those keys and run Omarchy
 commands instead.
 
+![The POP Icon Keys bar widget open: battery, key map with each key routed, Solaar status, and the Re-apply setup and Refresh buttons](preview.png)
+
 | Key | Does |
 |---|---|
 | F4 Show Desktop | Switches to an empty workspace; press again to go back |
