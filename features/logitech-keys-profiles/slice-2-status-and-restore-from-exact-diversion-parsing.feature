@@ -183,17 +183,34 @@ Feature: The status helper reports each profiled keyboard exactly
     Examples:
       | backend  | situation                              | rule                                                                  |
       | Solaar   | the POP Icon Keys, all keys routed     | liveKeyState is true and experimental is false                        |
-      | Solaar   | both daemons running                   | otherRunning is null for Solaar when OpenLogi's agent is not running  |
-      | OpenLogi | the synthetic OpenLogi sample          | liveKeyState is false and no key is dropped                           |
+      | Solaar   | only Solaar running                    | otherRunning is null                                                  |
+      | Solaar   | both daemons running                   | otherRunning is "openlogi"                                            |
+      | OpenLogi | the synthetic OpenLogi sample          | liveKeyState is false and no key is dropped and no key is routed      |
       | OpenLogi | the synthetic OpenLogi sample          | every key is unsupportedByBackend with reason notImplemented          |
       | OpenLogi | the synthetic OpenLogi sample          | the battery source is backend and level may be null                   |
-      | any      | a status with dropped under liveKeyState false | the contract check fails naming the key                       |
+      | OpenLogi | the sample with one extra optional field in the backend block | the contract check passes (backend fields are additive)  |
+
+  Scenario Outline: The contract check rejects a status that breaks its own rules
+    # Still passes if: the other keys of the status are reordered
+    # test: tests/test_status.py::validate_status_rejects
+    Given a valid status changed so that <defect>
+    When validate_status runs
+    Then it rejects the status naming <named>
+
+    Examples:
+      | defect                                                          | named                    |
+      | a key is dropped while liveKeyState is false                    | that key's cid and state |
+      | a key is routed while liveKeyState is false                     | that key's cid and state |
+      | a key has a state outside the six                               | that key's cid and state |
+      | an unsupportedByBackend key has no reason                       | that key's cid           |
+      | a key is unknown but the keyboard has no readProblem            | that keyboard's slug     |
+      | the schema is 2                                                 | the schema field         |
 
   Scenario: The committed samples match the builder and the OpenLogi one is labelled synthetic
     # Still passes if: the sample keyboards' battery numbers change
     # test: tests/test_status.py::samples_match_builder
     Given tests/qml/status-sample.json and tests/qml/status-sample-openlogi.json
-    Then each equals the builder's output for its fixed input
+    Then each equals the builder's output for its fixed input (the Solaar sample: POP Icon Keys battery 15 from a report at 1700000000, MX Keys for Mac battery 80 from a query; the OpenLogi sample: one online POP Icon Keys, battery 42, level good, read at 1700000000)
     And the OpenLogi sample carries the label "synthetic: doc-derived USAGE.md @9ca7ef0" and no real device name
 
   Scenario Outline: The keyboard's Set OS value is read without any write
@@ -220,27 +237,28 @@ Feature: The status helper reports each profiled keyboard exactly
     Examples:
       | situation                                              | installed | running | keyboards |
       | Solaar is not installed                                | false     | false   | no        |
-      | Solaar is installed and its background process is not running | true | false   | no        |
+      | Solaar is installed, its background process is not running and no profiled keyboard is saved | true | false | no  |
+      | Solaar is installed, its background process is not running and the POP Icon Keys is saved (the per-device show works without the daemon) | true | false | one, listed from the per-device read, keys that look lost are dropped |
       | Solaar runs with no profiled keyboard connected        | true      | true    | no        |
       | Solaar runs and records only a mouse                   | true      | true    | no        |
       | a one-off solaar show runs beside the background process | true   | true    | no        |
-      | solaar show takes longer than twenty seconds and Solaar has no saved entry for a profiled keyboard | true | true | no |
-      | solaar show takes longer than twenty seconds and Solaar has a saved entry for the POP Icon Keys | true | true | one, with unknown keys |
+      | a solaar show call times out and Solaar has no saved entry for a profiled keyboard | true | true | no |
+      | a solaar show call times out and Solaar has a saved entry for the POP Icon Keys | true | true | one, with unknown keys |
 
   Scenario Outline: Status queries each profiled device on its own and never runs solaar show all
     # Still passes if: the selectors are queried in another order
     # test: tests/test_status.py::per_device_queries
     Given Solaar has saved entries for <saved> and the profiles are the shipped ones
     When the status is read with a recording run function
-    Then the commands run are exactly <commands>
+    Then the recorded argv list is exactly <commands>, in that order
     And no command is solaar show all
 
     Examples:
-      | saved                                                  | commands                                                        |
-      | the POP Icon Keys and the MX Keys for Mac              | solaar show "POP Icon Keys" and solaar show "MX Keys for Mac"   |
-      | only the POP Icon Keys                                 | solaar show "POP Icon Keys" and solaar show "MX Keys for Mac"   |
-      | a POP Icon Keys saved under another name, same model id | the profile names and that saved name, each once               |
-      | a mouse only                                           | the two profile names, each once                                |
+      | saved                                                  | commands                                                                              |
+      | the POP Icon Keys and the MX Keys for Mac              | two calls: solaar show "MX Keys for Mac", then solaar show "POP Icon Keys" (slug order) |
+      | only the POP Icon Keys                                 | the same two calls                                                                     |
+      | a POP Icon Keys saved under the name "POP Keys Renamed", same model id | three calls: "MX Keys for Mac", "POP Icon Keys", "POP Keys Renamed" (saved names after the profile names) |
+      | a mouse only                                           | the same two profile-name calls and no third                                           |
 
   Scenario Outline: A returned block must be the profiled device
     # Still passes if: the other block is printed before the profiled one
@@ -257,14 +275,37 @@ Feature: The status helper reports each profiled keyboard exactly
       | a block with the POP Icon Keys model id and another printed name            | the POP Icon Keys section appears (matched by model id)                                  |
       | a block with an all-zero model id and the exact name POP Icon Keys          | the POP Icon Keys section appears (matched by exact name)                                |
 
-  Scenario: A complete POP block is kept when the output is truncated after it
+  Scenario Outline: A saved-entry name that is unsafe as a selector is skipped
+    # Still passes if: the hostile entry is saved before or after the real one
+    # test: tests/test_status.py::hostile_saved_names
+    Given Solaar has a saved entry for the POP Icon Keys (model id B38F00000000) whose name is <name>
+    When the selectors are built and the status is read with a recording run function
+    Then the recorded argv list is exactly solaar show "MX Keys for Mac" then solaar show "POP Icon Keys" and no argv holds <name>
+    And the POP Icon Keys is still found through its profile name
+
+    Examples:
+      | name                                  |
+      | -x                                    |
+      | --help                                |
+      | a name with a double quote inside     |
+      | a name with a newline inside          |
+
+  Scenario: A complete POP block is kept when its call prints a second header and then crashes
     # Still passes if: the traceback text is a different exception
     # test: tests/test_status.py::truncated_after_complete_block
-    Given the synthetic truncated output of the recorded POP Icon Keys block, a second device header and a UnicodeDecodeError traceback, exit status 1
-    When the status is read for the POP Icon Keys and the MX Keys for Mac, both saved in Solaar
+    Given the call for the selector "POP Icon Keys" prints the recorded POP block, then the header of a second device whose name contains that selector (the synthetic "POP Icon Keys Mini") and then a UnicodeDecodeError traceback, exit status 1
+    When the status is read for the POP Icon Keys with a saved entry
+    Then the POP Icon Keys keys have the states of its block, because the next header follows it
+    And the second device is incomplete, matches no profile and makes the selector ambiguous
+    And no key is dropped, notSetUp or absent because of the truncation
+
+  Scenario: One keyboard's call crashes while the other keyboard's call works
+    # Still passes if: the crashing call is made first or last
+    # test: tests/test_status.py::one_call_crashes
+    Given the call for the selector "MX Keys for Mac" exits 1 with the UnicodeDecodeError traceback and no block, the call for "POP Icon Keys" prints its recorded block, and both keyboards have saved entries
+    When the status is read
     Then the POP Icon Keys keys have the states of its block
     And the MX Keys for Mac has every key unknown and the readProblem solaarCrashed
-    And no key of either keyboard is dropped, notSetUp or absent because of the truncation
 
   Scenario Outline: A failed call is unknown for a known keyboard and silent for an unknown one
     # Still passes if: the failing call also printed a warning line
@@ -282,19 +323,27 @@ Feature: The status helper reports each profiled keyboard exactly
       | exits 1 with no device found matching its name                   | a saved entry for it        | no section (not present)                                             |
       | exits 1 with a traceback and no block                            | no saved entry              | no section                                                           |
 
-  Scenario: An unknown keyboard never warns and is never restored
+  Scenario: An unknown keyboard is valid status and is never restored
     # Still passes if: the other keyboard has a different battery level
     # test: tests/test_status.py::unknown_not_warning_not_restored
     Given the MX Keys for Mac is unknown and the POP Icon Keys is routed
     When the status is built, validated and the restore plan is made for each keyboard
     Then validate_status accepts it, the unknown keys carry no reason and the keyboard has readProblem set
-    And the restore plan for the MX Keys for Mac sends nothing and exits 0 saying it could not read the keyboard
+    And the restore plan for the MX Keys for Mac sends nothing and exits 0 with a skipped line saying it could not read the keyboard
+
+  Scenario: An unknown keyboard beside a dropped one restores only the dropped one
+    # Still passes if: the unknown keyboard's readProblem code differs
+    # test: tests/test_status.py::unknown_beside_dropped
+    Given the MX Keys for Mac is unknown and the POP Icon Keys has two dropped keys
+    When the status is built and the restore plan is made for each keyboard
+    Then the restore plan for the POP Icon Keys lists its two dropped keys and the plan for the MX Keys for Mac lists none
+    And the icon needs attention because of the POP Icon Keys only, and the unknown keyboard contributes nothing to the warning
 
   Scenario: The synthetic truncation fixture is built from the recording and labelled
     # Still passes if: the recorded POP fixture is re-recorded with other battery numbers
     # test: tests/test_status.py::synthetic_truncation_fixture
     Given the test that builds the truncated output
-    Then it is the recorded masked POP fixture text followed by a second device header and the traceback text
+    Then it is the recorded masked POP fixture text followed by the header of a second device whose name contains the selector and the traceback text
     And it is labelled synthetic with the date and the source of the traceback and no profile uses it as verification
 
   Scenario: Restore sends back only the dropped keys of one keyboard
@@ -328,14 +377,29 @@ Feature: The status helper reports each profiled keyboard exactly
   Scenario Outline: Restore skips an ambiguous selector
     # Still passes if: the refusal is printed to standard error
     # test: tests/test_status.py::restore_ambiguous
-    Given Solaar shows a device named <matched> and another device named <other>
+    Given the stub's solaar show command prints a block for every device whose name contains its selector argument, and Solaar has a device named <matched> and another device named <other>
     When the restore helper runs for the profile that matches the first
     Then <result>
 
     Examples:
       | matched       | other                | result                                                        |
-      | POP Icon Keys | POP Icon Keys Mini   | nothing is sent, it exits 1 and says the name also matches the other device |
-      | POP Icon Keys | MX Keys for Mac      | the dropped keys are sent and it exits 0                      |
+      | POP Icon Keys | POP Icon Keys Mini   | the selector returns both blocks: nothing is sent, it exits 1 and a skipped line says the name also matches the other device |
+      | POP Icon Keys | MX Keys for Mac      | control row: the name is not contained in the other, the selector returns only its own block, the dropped keys are sent and it exits 0 |
+      | POP Icon Keys | none                 | the selector returns only its own block: the dropped keys are sent and it exits 0 |
+
+  Scenario Outline: The restore helper prints exactly four kinds of line
+    # Still passes if: the wording after the prefix changes
+    # test: tests/test_status.py::restore_line_set
+    Given <situation>
+    When the restore helper runs
+    Then it prints <line> on <stream> and nothing else matches a different prefix
+
+    Examples:
+      | situation                                      | line                                   | stream  |
+      | a key is sent again                            | restored: <key>                        | stdout  |
+      | one key's command fails                        | failed: <key>                          | stderr  |
+      | Solaar is not installed or not running         | error: <text>                          | stderr  |
+      | an ambiguous selector or an unknown keyboard   | skipped: <reason>                      | stderr  |
 
   Scenario Outline: Restore reports what went wrong
     # Still passes if: the failed key is listed first
@@ -379,9 +443,9 @@ Feature: The status helper reports each profiled keyboard exactly
     Examples:
       | situation                              | exit | effect                                                              |
       | Solaar is installed and not running    | 0    | the stub is started once through setsid with --window=hide          |
-      | Solaar is already running              | 1    | nothing is started and the line says Solaar is already running      |
-      | Solaar is not installed                | 1    | nothing is started and the line says Solaar is not installed        |
-      | setsid cannot start Solaar             | 1    | the line says it could not start Solaar and the command to try      |
+      | Solaar is already running              | 1    | nothing is started and the line is the sentence "Solaar is already running." |
+      | Solaar is not installed                | 1    | nothing is started and the line is the sentence "Solaar is not installed." |
+      | setsid cannot start Solaar             | 1    | the line is a sentence that says it could not start Solaar and names the command to try |
 
   Scenario Outline: A query or backend battery figure is never written to the state directory
     # Still passes if: the figure shown differs by a percent

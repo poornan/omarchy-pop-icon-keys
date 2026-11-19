@@ -21,17 +21,17 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
     # test: tests/test_profiles.py::os_mode_matrix
     Given a valid profile changed so that <defect>
     When the profile check runs
-    Then it fails naming that profile file and the field osMode, or accepts it for the rows that say accepted
+    Then <outcome>
 
     Examples:
-      | defect                                                     |
-      | the OS mode is missing                                     |
-      | the OS mode is Ubuntu                                      |
-      | the OS mode is lowercase macos                             |
-      | the OS mode is an empty string                             |
-      | the OS mode is a number                                    |
-      | the verified block still holds an OS mode                  |
-      | the OS mode is Windows (accepted: it is on Solaar's list)  |
+      | defect                                     | outcome                                                   |
+      | the OS mode is missing                     | it fails naming the profile file and the field osMode     |
+      | the OS mode is Ubuntu                      | it fails naming the profile file and the field osMode     |
+      | the OS mode is lowercase macos             | it fails naming the profile file and the field osMode     |
+      | the OS mode is an empty string             | it fails naming the profile file and the field osMode     |
+      | the OS mode is a number                    | it fails naming the profile file and the field osMode     |
+      | the verified block still holds an OS mode  | it fails naming the profile file and the field osMode     |
+      | the OS mode is Windows                     | it passes (Windows is on Solaar's list)                   |
 
   Scenario: The MX Keys for Mac profile equals the recorded hardware facts
     # Still passes if: the recorded fixture's battery percentage differs
@@ -252,6 +252,24 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
       | an unknown model id            | MX Keys S           | no profile               |
       | an unknown model id            | MX Keys Mini        | no profile               |
       | B04200000000                   | MX Master 4         | no profile               |
+
+  Scenario Outline: A device name is matched to a profile by exact name only, for any backend
+    # Still passes if: the device's battery level differs
+    # test: tests/test_profiles.py::exact_name_matcher
+    Given a device named <name> and the shipped profiles plus one temporary profile with openlogi names "Logi MX Keys Mac"
+    When the name is matched by the identity module's exact-name matcher using <names field>
+    Then the result is <result>
+
+    Examples:
+      | name                              | names field          | result                                   |
+      | POP Icon Keys                     | the profile names    | matched to POP Icon Keys                 |
+      | POP Icon Keys Mini                | the profile names    | no match                                 |
+      | pop icon keys                     | the profile names    | no match                                 |
+      | POP Icon Keys (2)                 | the profile names    | no match                                 |
+      | no name at all                    | the profile names    | no match                                 |
+      | Logi MX Keys Mac                  | the openlogi names   | matched to the temporary profile         |
+      | Logi MX Keys Mac                  | the profile names    | no match                                 |
+      | two devices both named POP Icon Keys | the profile names | both returned as ambiguous duplicates    |
 
   Scenario: Bluetooth and Bolt entries of one keyboard both match
     # Still passes if: the entries appear in another order in the file

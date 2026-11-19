@@ -4,10 +4,36 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
     # Still passes if: a backend's label text changes
     # test: tests/test_backend_contract.py::registry_and_contract
     Given the backend registry
-    Then it names exactly solaar and openlogi
-    And each backend module has NAME, LABEL, EXPERIMENTAL, LIVE_KEY_STATE, collect, probe, known, keyboards, restore, plan_apply and plan_remove
-    And each backend's shell file defines installed, running, stop, start and restart_if_stopped under its own prefix
-    And Solaar has EXPERIMENTAL false and LIVE_KEY_STATE true while OpenLogi has EXPERIMENTAL true and LIVE_KEY_STATE false
+    Then it names exactly solaar and openlogi and imports a backend only when get is called with its name
+    And each backend module has NAME, LABEL, EXPERIMENTAL, LIVE_KEY_STATE, CAN_START, collect, probe, known, keyboards, restore, plan_apply and plan_remove
+    And each backend's shell file defines installed, running, resolve, stop, start and restart_if_stopped under its own prefix
+    And Solaar has EXPERIMENTAL false, LIVE_KEY_STATE true and CAN_START true while OpenLogi has EXPERIMENTAL true, LIVE_KEY_STATE false and CAN_START false
+    And Solaar's resolve is start, wait, stop and OpenLogi's resolve does nothing (the stub log is empty)
+
+  Scenario: Every module imports on its own and every entry script runs under isolation
+    # Still passes if: a new module is added under lib
+    # test: tests/test_imports.py::every_module_alone, tests/test_imports.py::contract_is_import_free, tests/test_imports.py::entry_scripts_isolated
+    Given every module under lib/ and lib/backends/, found by glob
+    When each is imported alone in a fresh python3 -I interpreter with only lib on the path
+    Then every import succeeds, so no import cycle exists
+    And lib/backends/contract.py imports nothing from the plugin and lib/fileedit.py imports no backend
+    And each entry script (lib/edit.py, lib/profiles.py and, once they exist, lib/battery.py) runs under -I from another working directory with no arguments or --help and exits with its usage status, not a traceback
+
+  Scenario: A plan is an ordered list of typed steps that the executor applies in order
+    # Still passes if: a block's comment text changes
+    # test: tests/test_backend_contract.py::plan_step_order, tests/test_backend_contract.py::step_backup_policy
+    Given the Solaar adapter's plan_apply for the POP Icon Keys with a synthetic record
+    When the executor applies it with a recording writer
+    Then the steps run in the order record(union), rules block, helper, Lua block, divert, record(final), each written atomically
+    And a record step makes no backup and needs no marker, while a block or file step backs up only when its content changes
+    And the daemon restart is not a step of the plan
+
+  Scenario: Stopping the executor after the divert leaves the union record
+    # Still passes if: the stop point is one step earlier
+    # test: tests/test_backend_contract.py::executor_stop_after_divert
+    Given a record listing id 212 and a profile that no longer maps it
+    When the executor is given an injected stop after the divert step
+    Then the record on disk lists the old and the new ids together and every file written so far is complete
 
   Scenario: An unknown backend name is refused
     # Still passes if: the refusal text changes
@@ -21,33 +47,35 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
     Given the recorded POP Icon Keys and MX Keys for Mac fixtures and the derived routed, dropped and not-set-up variants
     When the status is built through the Solaar adapter and directly by Slice 2's builder
     Then the two JSON documents are identical
+    And the output of the command line (edit.py status --backend solaar through bin/logitech-keys-status, with a stub solaar) equals the output of Slice 2's runner for the same raw text, so the CLI path is compared and not only the builders
     And the restore argv list equals the restore-plan commands of Slice 2 for each dropped key
 
   Scenario: Only collect does any I/O
-    # Still passes if: collect gains another read-only command
+    # Still passes if: the calls inside collect are made in a different order
     # test: tests/test_backend_contract.py::pure_outside_collect
     Given each backend module with files, processes and the clock made to fail
     When probe, known, keyboards, restore, plan_apply and plan_remove run on raw data
     Then none of them raises for I/O and collect alone uses the injected run function and the injected paths
 
-  Scenario Outline: Collect may run only its read-only commands
-    # Still passes if: the order of the allowed commands changes
+  Scenario Outline: Collect runs exactly its read-only commands and no others
+    # Still passes if: config.yaml lists its saved entries in another order
     # test: tests/test_backend_contract.py::collect_allow_list
-    Given the <backend> backend's collect with a recording run function
+    Given the <backend> backend's collect with a recording run function and <input>
     When it collects
-    Then every argv it passed is in the allow-list <allowed>
+    Then the recorded argv list has exactly <count> calls and is exactly <argv>
 
     Examples:
-      | backend  | allowed                                                      |
-      | solaar   | solaar show "<selector>" for the shipped profiles' exact names and the saved-entry names matched by model id, one call per selector, never solaar show all |
-      | solaar   | the same with a third profile that has its own exact name     |
-      | openlogi | openlogi api status and openlogi api devices                 |
+      | backend  | input                                                  | count | argv                                                                                       |
+      | solaar   | the shipped profiles and a POP Icon Keys saved under its profile name | 2 | solaar show "MX Keys for Mac", then solaar show "POP Icon Keys"                  |
+      | solaar   | the shipped profiles and a POP Icon Keys saved as "POP Keys Renamed" (same model id) | 3 | solaar show "MX Keys for Mac", "POP Icon Keys", then "POP Keys Renamed" |
+      | solaar   | the shipped profiles plus a third profile with its own exact name | 3 | the three profile names in slug order, each once, never solaar show all           |
+      | openlogi | any profiles                                            | 2     | openlogi api status, then openlogi api devices                                              |
 
-  Scenario Outline: OpenLogi keyboards are matched by exact name only
+  Scenario Outline: OpenLogi keyboards are matched by exact name only, through the one identity module
     # Still passes if: the device's battery level differs
-    # test: tests/test_backend_contract.py::openlogi_identity
+    # test: tests/test_backend_contract.py::openlogi_identity, tests/test_backend_contract.py::openlogi_uses_identity_module
     Given the OpenLogi inventory has a device named <name> and the profile has <profile names>
-    When the devices are matched
+    When the devices are matched by openlogi.known, which calls the identity module's exact-name matcher (a source check: openlogi.py holds no name comparison of its own)
     Then the result is <result>
 
     Examples:
@@ -84,13 +112,15 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
     # Still passes if: the error message text inside the envelope changes
     # test: tests/test_backend_contract.py::openlogi_problems
     Given the OpenLogi command outputs <output>
-    When the backend is probed and the status is built
-    Then usable is false and the problem is <problem> and the status is valid JSON with no keyboards
+    When the backend is probed and the status is built and the status helper runs
+    Then usable is false and the problem is <problem> and the status is valid JSON with no keyboards and the helper exits 0
 
     Examples:
       | output                                                              | problem           |
       | ok false with code agent_unavailable                                | agentUnavailable  |
       | ok false with code version_mismatch and exit status 1               | versionMismatch   |
+      | ok false with an unrecognised code (not one of the two)             | unknownSchema     |
+      | ok false with no code at all                                        | unknownSchema     |
       | ok true with inventory scanning                                     | inventoryNotReady |
       | ok true with inventory unavailable                                 | inventoryNotReady |
       | schema_version 2                                                    | unknownSchema     |
@@ -119,7 +149,7 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
       | openlogi | every key state is in the enum and unsupportedByBackend never counts toward the warning          |
       | solaar   | restore returns only allow-listed argv and writes no file                                        |
       | openlogi | restore returns only allow-listed argv and writes no file                                        |
-      | solaar   | plan_apply touches only the paths it declares and a second plan_apply changes nothing            |
+      | solaar   | plan_apply touches only the paths it declares and a second plan_apply changes nothing (key rules only are counted, no literal totals) |
       | openlogi | plan_apply touches only the paths it declares and a second plan_apply changes nothing            |
       | solaar   | plan_remove after plan_apply leaves every file byte-identical to before                          |
       | openlogi | plan_remove after plan_apply leaves every file byte-identical to before                          |
@@ -156,10 +186,11 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
       | the unit is active                                                | openlogi_running succeeds                                                  |
       | the unit is inactive but an openlogi-agent process of this user exists | openlogi_running succeeds                                             |
       | neither                                                           | openlogi_running fails                                                     |
-      | stop then restart_if_stopped on a stopped agent                   | the stub log shows stop then start for that unit only                      |
-      | restart_if_stopped when this code did not stop it                 | nothing is started                                                         |
-      | a dry run of stop and start                                       | the stub log is empty                                                      |
-      | a systemctl call for any other unit or without --user             | the stub refuses it and the test fails                                     |
+      | a real (stub) stop then restart_if_stopped on a stopped agent     | the stub log shows stop then start for that unit only                      |
+      | a real (stub) restart_if_stopped when this code did not stop it   | nothing is started                                                         |
+      | a dry run of stop                                                 | the stub log is empty                                                      |
+      | a dry run of start                                                | the stub log is empty                                                      |
+      | openlogi_resolve, real or dry                                     | nothing is run and the stub log is empty                                   |
 
   Scenario Outline: The status helper reports the other backend that also runs
     # Still passes if: the helper takes a little longer to run
@@ -181,4 +212,6 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
     Given the OpenLogi fixtures and stubs
     Then each carries the label "synthetic: doc-derived USAGE.md @9ca7ef0"
     And a run with the openlogi or systemctl stub missing from PATH fails before any test runs
+    And the systemctl stub refuses a call for any other unit or without --user, logs the refusal and fails the test
     And no profile has a backends.openlogi.verified block
+    And api-devices-ready.json yields exactly the OpenLogi sample's values (the online POP Icon Keys, battery 42, level good, read at 1700000000)

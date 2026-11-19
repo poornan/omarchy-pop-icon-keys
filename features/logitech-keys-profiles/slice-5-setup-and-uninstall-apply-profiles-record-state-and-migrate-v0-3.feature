@@ -82,14 +82,17 @@ Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
     And the rules block holds ten battery rules for the POP Icon Keys and each one runs that helper with the keyboard's slug
     And running setup again changes nothing and creates no backup
 
-  Scenario: Uninstall removes the state directory and nothing else
+  Scenario Outline: Uninstall removes the state directory and nothing else
     # Still passes if: the state directory holds an extra empty folder
-    # test: tests/test_setup.sh::"uninstall removes the state directory", tests/test_battery.py::remove_state
+    # test: tests/test_setup.sh::"uninstall removes the state directory", tests/test_battery.py::remove_state, tests/test_state.py::statedir_removal_order
     Given setup ran and the battery folder holds a report for the POP Icon Keys
-    When I run uninstall and accept
-    Then the whole logitech-keys state directory, the applied record and the battery files included, is gone
-    And no other folder under the state home is touched and the plan listed the removal
-    And a dry run removes nothing
+    When I run uninstall <mode>
+    Then <result>
+
+    Examples:
+      | mode                  | result                                                                                                                       |
+      | and accept            | the whole logitech-keys state directory, the applied record and the battery files included, is gone, no other folder under the state home is touched and the plan listed the removal |
+      | with --dry-run        | nothing is removed, the plan lists the removal and says it would happen                                                      |
 
   Scenario Outline: Setup warns about a different OS mode and continues
     # Still passes if: the warning wording changes
@@ -108,7 +111,7 @@ Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
     # Still passes if: the lifecycle function bodies change
     # test: tests/test_setup.sh::"setup uses the lifecycle seam"
     Given the setup and uninstall scripts
-    Then they call stop, start, running and installed only through the solaar_ functions of lib/backends/solaar.sh
+    Then they call installed, running, resolve, stop, start and restart_if_stopped only through the solaar_ functions of lib/backends/solaar.sh
     And no bash code reads config.yaml, rules.yaml or a profile directly
 
   Scenario: Uninstall after setup
@@ -126,13 +129,21 @@ Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
     When I run setup and accept
     Then 212 is regular, its rule is gone, and the keys still mapped and user rules are untouched
 
-  Scenario: Setup stopped between the two record writes leaves a record uninstall can use
-    # Still passes if: the stop happens a little earlier or later in the wait
-    # test: tests/test_setup.sh::"setup stopped between the record writes, then uninstall"
+  Scenario: Setup stopped inside the apply leaves a record uninstall can use
+    # Still passes if: the stop happens a little earlier or later after the first record write
+    # test: tests/test_backend_contract.py::executor_stop_after_divert, tests/test_state.py::record_before_divert
     Given the record lists id 212 and the profile no longer maps it
-    When I run setup, accept, and stop it while it waits for Solaar
+    When the plan executor is stopped after the divert step and before the final record (the executor takes an injected stop point; no sandbox signal is needed)
     Then the record on disk lists the old and the new ids together
-    And uninstall afterwards resets every id and deletes the record
+    And uninstall's edits afterwards reset every id and delete the record
+
+  Scenario: A failed restart after the apply leaves the files and the final record in place
+    # Still passes if: the sandbox Solaar's failure text differs
+    # test: tests/test_setup.sh::"Solaar fails to start after the files are written"
+    Given the record lists id 212, the profile no longer maps it and the sandbox Solaar cannot start
+    When I run setup and accept
+    Then the files and the record are final (the record lists the new ids only), there is no Done line, and the message says how to start Solaar
+    And a later uninstall still resets every recorded id
 
   Scenario Outline: A damaged or unfamiliar applied record stops setup and uninstall before any change
     # Still passes if: the record's JSON is indented differently
@@ -208,29 +219,29 @@ Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
     Then the plan names the exact v0.3 keys it will reset
     And after accepting, those keys are regular again as v0.3 did
 
-  Scenario Outline: The v0.3 safety cases still end as they did
+  Scenario Outline: Each v0.3 safety case ends with the exit code and file state v0.3 asserted
     # Still passes if: the sandbox folder names differ
-    # test: tests/test_setup.sh (the v0.3 sections kept, listed in the inventory)
-    Given <case>
+    # test: tests/test_setup.sh (the v0.3 sections kept; the inventory row names the section)
+    Given <case> (inventory row: <row>)
     When setup or uninstall runs in a sandbox
-    Then it ends as it did in v0.3 and changes no file the user did not consent to
+    Then the exit code is <exit> and <state>
 
     Examples:
-      | case                                                  |
-      | broken markers                                        |
-      | line endings, block position, symlinks and file modes |
-      | two saved entries, one in block style                 |
-      | a divert-keys id that is not a number                 |
-      | Hyprland reload fails                                 |
-      | Solaar ignores SIGTERM                                |
-      | Solaar takes a few seconds to save and exit           |
-      | setup stopped by SIGTERM while it waits for Solaar    |
-      | Solaar fails to start again                           |
-      | --yes does not install Solaar                         |
-      | backups: newest three kept                            |
-      | unreadable and unwritable files                       |
-      | missing Python yaml module                            |
-      | paths with spaces and commas, and a bad HOME          |
-      | relative XDG_CONFIG_HOME                              |
-      | concurrent runs                                       |
-      | uninstall when Solaar is not installed                |
+      | case                                                  | row                                                      | exit                         | state                                                                                       |
+      | a lone BEGIN or END marker in rules, bindings or autostart | "broken markers stop setup and uninstall before any change" | setup and uninstall non-zero, "expected one of each" | all files byte-identical, Solaar not stopped, no Done line                          |
+      | CRLF files, a symlinked rules file, mode 600            | "line endings, block position, symlinks and file modes are kept" | 0                       | CRLF kept, block above the bottom line, symlink kept with its target edited, mode 600 kept, no temporary file |
+      | two saved entries, one in block style                   | "two saved entries for the keyboard, one in block style" | 0                            | both entries diverted, the block-style extra key kept, config.yaml still parses              |
+      | a divert-keys id that is not a number                   | "a divert-keys id that is not a number"                  | non-zero, "not a number"     | config.yaml unchanged, "Setup stopped partway" printed, Solaar started again                 |
+      | Hyprland reload fails                                   | "Hyprland reload fails"                                  | 0                            | applied, "Applied, except" and the reload listed as not done                                |
+      | Solaar ignores SIGTERM                                  | "Solaar ignores SIGTERM"                                 | 0                            | SIGKILL used, keys diverted, the old Solaar gone and a new one running                      |
+      | Solaar takes a few seconds to save and exit             | "Solaar takes a few seconds to save and exit"            | 0                            | setup waited (no SIGKILL), saved state written, Solaar running at the end                    |
+      | setup stopped by SIGTERM while it waits for Solaar      | "setup is stopped (SIGTERM) while it waits for Solaar"   | 143                          | config.yaml unchanged, a Solaar running afterwards, "Setup stopped partway" printed          |
+      | Solaar fails to start again                             | "Solaar fails to start again"                            | non-zero (v0.3 asserted the message; v0.4 asserts the code too) | no Done line, the message names starting Solaar                          |
+      | --yes without Solaar installed                          | "--yes never installs Solaar"                            | non-zero, "install Solaar first" | no package command run, nothing changed                                                  |
+      | backups: newest three kept                              | "backups: newest 3 kept, by the time in their name"      | 0                            | exactly three backups of the changed file, the newest kept, at least one with the keep count at 0 |
+      | unreadable and unwritable files                         | "unreadable and unwritable files"                        | non-zero ("not UTF-8", "cannot write"), no traceback | nothing changed, Solaar not stopped                                    |
+      | the Python yaml module missing                          | "missing Python yaml module"                             | non-zero, names the package  | nothing changed                                                                              |
+      | paths with spaces and commas, and a bad HOME            | "paths with spaces and commas, and a bad HOME"           | 0 for spaces and commas; non-zero for a HOME with a newline ("without newlines") | the Show Desktop rule runs one program at its full path; nothing written for the bad HOME |
+      | a relative XDG_CONFIG_HOME                              | "relative XDG_CONFIG_HOME is ignored"                    | 0                            | edits ~/.config and creates nothing under the relative folder                                |
+      | a second setup while one runs                           | "one setup at a time"                                    | non-zero, "another ... is running" | files unchanged                                                                        |
+      | uninstall when Solaar is not installed                  | "uninstall when Solaar is not installed"                 | 0                            | the marked blocks removed, "Solaar is not installed" printed and the diversion not reported as reset |

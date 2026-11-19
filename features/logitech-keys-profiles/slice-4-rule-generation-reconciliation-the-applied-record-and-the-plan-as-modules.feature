@@ -20,8 +20,8 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
     # test: tests/test_rules.py::solaar_loads_rules
     Given the rules generated for both shipped profiles
     When Solaar's own rule loader reads them
-    Then it loads one rule per key with the same key name, device names and arguments
-    And a missing loader counts as a failure on the development machine
+    Then it loads one rule per key with the same key name, device names and arguments, counting only the key rules (never a literal total)
+    And on CI, where Solaar is not installed, the check is skipped with a printed note, and on the development machine with LK_REQUIRE_SOLAAR=1 a missing loader is a failure
 
   Scenario Outline: A rule fires only for its own keyboard
     # Still passes if: the generated rules carry extra comments
@@ -30,6 +30,7 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
     And the rules generated for the POP Icon Keys, the synthetic keyboard and the MX Keys for Mac
     When Solaar's own evaluator checks <rule of> against a fake <device>
     Then the rule fires: <fires>
+    And on CI the check is skipped with a printed note, and on the development machine with LK_REQUIRE_SOLAAR=1 a skip is a failure
 
     Examples:
       | rule of                    | device             | fires |
@@ -177,7 +178,7 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
   Scenario: The applied record has the backend, the switching marker and per-backend artifacts
     # Still passes if: the record lists the profiles in another order
     # test: tests/test_state.py::applied_backend_shape
-    Given a record written for the Solaar backend after setup applied both profiles
+    Given a synthetic record built through lib/applied.py for the Solaar backend with both profiles (no setup run: setup does not exist in this slice)
     When the record is read back
     Then it has schema 1, the plugin version, backend solaar, switching null and the two profiles with ids, matched names and model ids
     And its artifacts hold the Solaar entries per slug, the rules block, the battery rules and the autostart block, the Hyprland bindings block, and an empty openlogi entry with enabledService false and disabledService false
@@ -194,6 +195,29 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
       | solaar  | before a switch to openlogi begins        | solaar  | from solaar, to openlogi       |
       | solaar  | after the switch finished                 | openlogi | null                          |
       | openlogi | before a switch to solaar begins          | openlogi | from openlogi, to solaar      |
+
+  Scenario Outline: The applied record changes one field at a time and keeps the rest
+    # Still passes if: the record lists the profiles in another order
+    # test: tests/test_state.py::applied_field_writes, tests/test_edit.py::applied_update_verb
+    Given a synthetic record built through lib/applied.py with backend solaar, two profiles and Solaar artifacts
+    When <steps> run in that order
+    Then the record has <result> and every other field is unchanged
+
+    Examples:
+      | steps                                                                                          | result                                                              |
+      | begin the switch to openlogi, then apply (a merge) the Solaar artifacts of one profile, then set the openlogi enabledService flag | switching from solaar to openlogi, enabledService true and both profiles still listed |
+      | set the disabledService flag, then begin the switch, then clear switching                      | disabledService true and switching null                              |
+      | two writers each update a different field at the same time (locked read-modify-write)           | both updates are present                                             |
+      | apply a record fragment that does not name the flags or switching                               | the flags and switching survive (apply merges, never replaces)       |
+      | finish the switch to openlogi                                                                  | backend openlogi and switching null, artifacts untouched             |
+
+  Scenario: The state directory is removed battery files first and the record last
+    # Still passes if: the battery folder holds extra files
+    # test: tests/test_state.py::statedir_removal_order
+    Given a state home with the logitech-keys folder holding applied.json and a battery folder with reports, and another folder beside it
+    When the removal is interrupted after the battery folder and before the record
+    Then applied.json is still on disk so a re-run of uninstall can finish
+    And a full removal leaves the other folder byte-identical and a dry run removes nothing
 
   Scenario: A record with an unknown backend name is refused
     # Still passes if: the record holds extra whitespace
@@ -229,3 +253,6 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
       | a keyboard's Set OS differs from its profile's osMode        | warns naming the keyboard, the expected mode and Solaar as the place to change it, and continues  |
       | a keyboard's Set OS cannot be read                           | prints no OS mode warning                                                                         |
       | an untested profile and a keyboard in another OS mode        | still warns (the check covers every profile)                                                      |
+      | any plan that has warnings                                   | prints one "Warnings" group directly above the prompt line, holding in this order the OS mode warning, the OpenLogi layout warning, the service-disable notice, the migration list and a v0.3 leftover under OpenLogi, each only when it applies |
+      | a plan built from daemon actions and a backend descriptor given as plain data | lists exactly those daemon actions in order and names that backend; lib/plan.py has no Solaar or OpenLogi wording of its own |
+      | a rule, a key or a warning that has an internal code         | prints the plain words (for example "not mapped in this version"), never the code                 |
