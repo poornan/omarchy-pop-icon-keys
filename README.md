@@ -1,5 +1,13 @@
 # POP Icon Keys for Omarchy
 
+> **Retired (2026-11-19). This repository is archived and no longer maintained.**
+>
+> [OpenLogi](https://github.com/AprilNEA/OpenLogi) now does what this plugin set out to do, on Linux and without Solaar: its own app maps the POP Icon Keys' dedicated keys (and those of other Logitech keyboards) to a **Run Shell Command** action, and shows battery, Easy-Switch channels and device settings. To get the same Omarchy actions, bind each key in OpenLogi to the matching command, for example `omarchy-shell omarchy.dock apps` (Search), `omarchy-shell shell toggle omarchy.emojis` (Emoji) or `omarchy-capture-screenshot region` (Screen Capture), using full paths under `/usr/share/omarchy/bin/`.
+>
+> If you installed this plugin, run its `uninstall` before removing it with `omarchy plugin remove io.github.poornan.pop-icon-keys`, and don't run Solaar and OpenLogi at the same time: only one program can own a Logitech receiver.
+>
+> The `feat/logitech-keys-profiles` branch holds the unfinished multi-keyboard design (spec, plan and ADRs) for reference.
+
 Makes the Mac-style top row of the **Logitech POP Icon Keys** do the matching
 thing on [Omarchy](https://omarchy.org), and puts the keyboard's battery in the bar.
 
