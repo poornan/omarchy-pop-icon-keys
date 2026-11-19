@@ -133,9 +133,9 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
   truncated, crashed or timed out is `unknown`: never disconnected and never not
   set up; dimmed, not counted toward the warning, not restored. A block that
   parsed completely is kept.
-- **Status and widget.** `lib/status.py` parses the diversion lines exactly and
-  emits JSON with a `schema` field and one section per connected profiled
-  keyboard. One bar icon, one popup section per keyboard.
+- **Status and widget.** `lib/solaarshow.py` parses the diversion lines exactly
+  and `lib/statuscontract.py` builds the JSON with a `schema` field and one section
+  per connected profiled keyboard (ADR 0008, module layout after round 6). One bar icon, one popup section per keyboard.
 - **Tested versus untested.** A profile is tested only if it has a `verified`
   block. One recorded `solaar show` fixture per profile; routed, dropped and
   not-set-up variants are derived. Synthetic fixtures never count as

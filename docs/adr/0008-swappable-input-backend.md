@@ -20,7 +20,9 @@ below); there are no open questions. Amended the same day with the facts read
 from the owner's live OpenLogi 0.9.0 install (agent installed, disabled, not
 running, never started by this work) and from the OpenLogi source. Amended again the same day for the owner's finding
 that plain `solaar show` crashes on this machine ("The Solaar backend queries one
-device at a time", below).
+device at a time", below). Amended a fourth time after the plan-review round 6
+(module layout, typed plan steps, one writer of the applied record, copy; see
+"Module layout after plan review (round 6)", below).
 
 ## Context
 
@@ -108,15 +110,20 @@ in v0.4.0.
   `plan|apply|remove|status|restore --backend <name>`. A shared executor in
   `lib/fileedit.py` writes every `FileEdit` (atomic, backup on change, dry-run
   diffs, marker checks, once for all backends).
-- **Layout:** `lib/backends/__init__.py` (the contract: key states, battery
-  shape, `Plan` and `FileEdit`, and `REGISTRY = {"solaar": ..., "openlogi":
-  ...}`); `lib/backends/solaar.py` (a thin adapter over the existing identity,
+- **Layout** (amended, round 6): the contract types (battery shape, `Plan`, its
+  typed steps and `FileEdit`) are in the import-free `lib/backends/contract.py`;
+  the key-state enum is in `lib/statuscontract.py` (the status contract) and the
+  backends import it; the registry is `lib/backends/registry.py`, exactly `solaar`
+  and `openlogi`, importing a backend lazily by name (`get(name)`);
+  `lib/backends/plan_common.py` is the backend-neutral Hyprland edit;
+  `lib/backends/__init__.py` is empty (no import cycle can form); `lib/backends/solaar.py` (a thin adapter over the existing identity,
   status, rules, diversion and battery modules; no logic moves);
   `lib/backends/solaar.sh` (sources `lib/solaar-procs.sh`; stop, start and restart
   move here from `lib.sh`); `lib/backends/openlogi.py` (read side);
   `lib/backends/openlogi.sh` (`systemctl --user` lifecycle).
 - **Python contract**, per backend module: constants `NAME`, `LABEL`,
-  `EXPERIMENTAL`, `LIVE_KEY_STATE` (Solaar: `EXPERIMENTAL` false,
+  `EXPERIMENTAL`, `LIVE_KEY_STATE`, `CAN_START` (Solaar true, OpenLogi false; the
+  status field `canStart` is `CAN_START` and installed and not running) (Solaar: `EXPERIMENTAL` false,
   `LIVE_KEY_STATE` true; OpenLogi: `EXPERIMENTAL` true, `LIVE_KEY_STATE` false;
   `LIVE_KEY_STATE` says whether the backend can read which keys are diverted
   right now); `collect(run, paths, profiles)` (the only I/O; `run(argv, timeout)` is
@@ -133,10 +140,12 @@ in v0.4.0.
   `restore(sections)` (an argv list; never writes config; Solaar
   `solaar config <exact matched name> divert-keys <key> Diverted`, skipped when
   ambiguous; OpenLogi returns `[]`); `plan_apply(...)` and `plan_remove(...)`
-  returning a `Plan` (`edits`, per-key outcomes `mapped` or `unsupported` with a
-  reason, `daemonMustBeStopped`, `artifacts`).
-- **Bash contract**, namespaced `<b>_installed`, `<b>_running`, `<b>_stop`,
-  `<b>_start`, `<b>_restart_if_stopped`. Solaar: `command -v solaar`, the
+  returning a `Plan` (an ordered list of typed steps `block`, `record`, `file` and
+  `divert`, each with a backup policy, per-key outcomes `mapped` or `unsupported`
+  with a reason, `daemonMustBeStopped`, `artifacts`).
+- **Bash contract**, namespaced `<b>_installed`, `<b>_running`, `<b>_resolve`
+  (Solaar: start once so it records the connected keyboards, wait, stop; OpenLogi:
+  no-op), `<b>_stop`, `<b>_start`, `<b>_restart_if_stopped`. Solaar: `command -v solaar`, the
   existing `solaar_daemon_pids`, the existing stop, start and restart. OpenLogi:
   installed is `command -v openlogi` and `systemctl --user cat
   openlogi-agent.service`; running is `systemctl --user is-active --quiet
@@ -166,8 +175,11 @@ in v0.4.0.
   the keyboard section then carries `readProblem` (`solaarCrashed`, `timeout` or
   `noOutput`, otherwise null). All three are dimmed and none counts toward the
   warning; `unknown` is never restored.
-- When `liveKeyState` is false, `dropped` is never emitted, `routed` means
-  "configured and the agent is running", and the widget offers no restore.
+- When `liveKeyState` is false, `dropped` is never emitted, no key is ever
+  `routed` in v0.4.0 (the "configured and the agent is running" meaning is
+  deferred to S10) and the widget offers no restore. Backend fields beyond the
+  listed ones are additive and optional: the validator allows them and the widget
+  ignores fields it does not know.
 - Battery `source` is `report`, `query` or `backend` (the daemon's cached value
   read at `at`); `level` may be null.
 - `otherRunning` names the other backend when its daemon also runs; the widget
@@ -427,6 +439,36 @@ beyond the click, and refuses when Solaar is already running or not installed.
 Auto-restore never runs while the backend is not running. The README tells the
 user to start Solaar hidden and not to close its window. OpenLogi never gets this
 button (`canStart` false); its agent problem copy stays as before.
+
+### Module layout after plan review (round 6)
+
+The five plan reviewers found an import cycle (the file editor, the backends
+package, the status enum and the Solaar module), a status module that mixed the
+neutral contract with the Solaar parser and left a second I/O path beside
+`collect`, and a switch record with no interface and several writers. Decisions:
+
+- `lib/backends/contract.py` is import-free; `fileedit.execute` takes only those
+  types; the enum lives with the status contract; the registry is lazy; every
+  `lib/` module must import on its own under `python3 -I` (a test imports each),
+  and each entry script puts its own folder first on `sys.path`.
+- `lib/status.py` is split in Slice 2: `lib/statuscontract.py` (enum, shapes,
+  `validate_status`, `build_status`, `choose_battery`, `battery_for`) and
+  `lib/solaarshow.py` (blocks, selectors, state table, `os_mode`, restore plan),
+  both without I/O; `lib/status.py` is only a thin runner until Slice 7 deletes it,
+  so only `collect` does I/O.
+- `lib/applied.py` is the only writer of `applied.json`, with field-level locked
+  read-modify-write verbs; `apply` merges; the state-directory path and removal are
+  `lib/statedir.py` (`battery/` first, `applied.json` last).
+- A `Plan` is ordered typed steps; the daemon restart is after the executor; the
+  pure `lib/switch.py::switch_steps` lists the steps of a switch and, on resume,
+  only the remaining ones; bash runs the ids.
+- One decision verb, `select-backend`, serves setup and the status helper;
+  `--backend` never overrides the both-running refusal.
+- Legacy v0.3 artifacts belong to the Solaar adapter (`plan_apply` migrates,
+  `plan_remove` removes; uninstall always asks for the legacy part); under an
+  OpenLogi setup a leftover is only warned about.
+- Descope order if the schedule slips: Slice 9.2 (switching) first, keeping
+  selection, refusal and uninstall of recorded artifacts.
 
 ## Considered options
 

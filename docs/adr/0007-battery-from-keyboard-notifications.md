@@ -71,8 +71,12 @@ Use Solaar rules to observe the keyboard's battery notifications.
   with the action `Execute [<plugin helper>, <slug>, <lo>]`.
 - New helper `bin/logitech-keys-battery <slug> <percent>`: accepts only a slug
   that a profile defines and an integer 0-100, and writes
-  `$XDG_STATE_HOME/logitech-keys/battery/<slug>` (the value and the epoch time)
-  atomically. It writes nothing under `/tmp`.
+  `$XDG_STATE_HOME/logitech-keys/battery/<slug>` atomically as two lines, the
+  bucket lower bound and the epoch integer (`<lo>\n<epoch>\n`); it snaps a
+  percent to its bucket's lower bound (15 gives 10, 95 and 100 give 90), so a
+  report written with bucket 10 reads back as value 15, source `report`. It
+  writes nothing under `/tmp`. The age text in the widget is a pure function of
+  the report time and an injected `now` (plan review round 6).
 - The status JSON carries `battery` as null or `{value, level, source, at}`
   (`level` may be null), with `source` `report` or `query` (Solaar backend) or
   `backend` (the figure another backend's daemon cached, read at `at`, for
