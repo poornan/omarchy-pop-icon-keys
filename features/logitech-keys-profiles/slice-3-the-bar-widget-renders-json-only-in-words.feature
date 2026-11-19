@@ -22,6 +22,7 @@ Feature: One bar icon shows every connected profiled keyboard, in words
       | dropped  | yes       | Lost, restoring...    | no     |
       | notSetUp | no        | Not set up            | no     |
       | absent   | no        | Not found             | yes    |
+      | unknown  | no        | Unknown               | yes    |
 
   Scenario Outline: An untested keyboard is labelled in words
     # Still passes if: the badge colour changes
@@ -46,6 +47,7 @@ Feature: One bar icon shows every connected profiled keyboard, in words
       | all keys active     | two keys not set up       | warning | Re-apply setup (all keyboards)  |
       | all keys active     | two keys lost, no setup needed | warning | Restore (lost keys only)   |
       | all keys active     | one key not found         | normal  | nothing extra                   |
+      | all keys active     | every key unknown (not read) | normal | nothing extra, no Restore button for it |
       | one key lost        | two keys not set up       | warning | both buttons                    |
 
   Scenario: An absent key is dimmed and is not a warning
@@ -54,6 +56,14 @@ Feature: One bar icon shows every connected profiled keyboard, in words
     Given a key whose state is absent and every other key of the keyboard active
     Then the key's row exists and carries the dimmed flag
     And the icon does not ask for setup
+
+  Scenario: A keyboard that could not be read says so and does not warn
+    # Still passes if: the other keyboard has lost keys
+    # test: tests/qml/shell.qml::unknown_keyboard
+    Given the MX Keys for Mac has every key unknown with a readProblem and the POP Icon Keys is all active
+    Then the MX Keys for Mac section shows its keys as Unknown and the line "Could not read this keyboard's status. Choose Refresh."
+    And the icon does not warn, no Restore button is offered for it and no automatic restore runs for it
+    And the POP Icon Keys section is unchanged
 
   Scenario: A keyboard with every key absent says so in words
     # Still passes if: the other keyboard is fine or not

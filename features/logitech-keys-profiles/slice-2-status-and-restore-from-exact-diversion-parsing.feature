@@ -147,12 +147,26 @@ Feature: The status helper reports each profiled keyboard exactly
     When the status is read for both
     Then only the MX Keys for Mac shows a report and the POP Icon Keys falls back to its query
 
+  Scenario Outline: The battery freshness rule is one function and today's behaviour is pinned
+    # Still passes if: the report's value or the query figure differs
+    # test: tests/test_status.py::report_is_fresh_rule
+    Given report_is_fresh is called with a report at <report> and a connect at <connect>
+    Then it returns <result>
+    And battery_for uses that function and no other comparison of the two times
+
+    Examples:
+      | report | connect | result                                        |
+      | 10:00  | 09:00   | true                                          |
+      | 08:00  | 09:00   | false (the pre-restart report loses, pending the owner's choice) |
+      | 09:00  | 09:00   | false                                         |
+      | 10:00  | unknown | true                                          |
+
   Scenario Outline: The status carries a backend block and only known key states
     # Still passes if: the backend's label text changes
     # test: tests/test_status.py::status_contract
     Given the status built for <backend> in <situation>
     When the contract check runs
-    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState, otherRunning and canStart, and every key state is one of routed, dropped, notSetUp, absent or unsupportedByBackend
+    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState, otherRunning and canStart, and every key state is one of routed, dropped, notSetUp, absent, unsupportedByBackend or unknown
     And <rule>
 
     Examples:
@@ -199,7 +213,78 @@ Feature: The status helper reports each profiled keyboard exactly
       | Solaar runs with no profiled keyboard connected        | true      | true    | no        |
       | Solaar runs and records only a mouse                   | true      | true    | no        |
       | a one-off solaar show runs beside the background process | true   | true    | no        |
-      | solaar show takes longer than twenty seconds           | true      | true    | no        |
+      | solaar show takes longer than twenty seconds and Solaar has no saved entry for a profiled keyboard | true | true | no |
+      | solaar show takes longer than twenty seconds and Solaar has a saved entry for the POP Icon Keys | true | true | one, with unknown keys |
+
+  Scenario Outline: Status queries each profiled device on its own and never runs solaar show all
+    # Still passes if: the selectors are queried in another order
+    # test: tests/test_status.py::per_device_queries
+    Given Solaar has saved entries for <saved> and the profiles are the shipped ones
+    When the status is read with a recording run function
+    Then the commands run are exactly <commands>
+    And no command is solaar show all
+
+    Examples:
+      | saved                                                  | commands                                                        |
+      | the POP Icon Keys and the MX Keys for Mac              | solaar show "POP Icon Keys" and solaar show "MX Keys for Mac"   |
+      | only the POP Icon Keys                                 | solaar show "POP Icon Keys" and solaar show "MX Keys for Mac"   |
+      | a POP Icon Keys saved under another name, same model id | the profile names and that saved name, each once               |
+      | a mouse only                                           | the two profile names, each once                                |
+
+  Scenario Outline: A returned block must be the profiled device
+    # Still passes if: the other block is printed before the profiled one
+    # test: tests/test_status.py::per_device_identity
+    Given the call for the selector "POP Icon Keys" prints <blocks>
+    When the status is read
+    Then <result>
+
+    Examples:
+      | blocks                                                                    | result                                                                                  |
+      | the POP Icon Keys block with Model ID B38F00000000                         | the POP Icon Keys section has its states and the selector is not ambiguous               |
+      | a block named POP Icon Keys with another Model ID                           | no section appears for it and the selector is ambiguous                                  |
+      | the POP Icon Keys block and a block named POP Icon Keys Mini                | the POP Icon Keys section has its states and the selector is ambiguous, so restore sends nothing |
+      | a block with the POP Icon Keys model id and another printed name            | the POP Icon Keys section appears (matched by model id)                                  |
+      | a block with an all-zero model id and the exact name POP Icon Keys          | the POP Icon Keys section appears (matched by exact name)                                |
+
+  Scenario: A complete POP block is kept when the output is truncated after it
+    # Still passes if: the traceback text is a different exception
+    # test: tests/test_status.py::truncated_after_complete_block
+    Given the synthetic truncated output of the recorded POP Icon Keys block, a second device header and a UnicodeDecodeError traceback, exit status 1
+    When the status is read for the POP Icon Keys and the MX Keys for Mac, both saved in Solaar
+    Then the POP Icon Keys keys have the states of its block
+    And the MX Keys for Mac has every key unknown and the readProblem solaarCrashed
+    And no key of either keyboard is dropped, notSetUp or absent because of the truncation
+
+  Scenario Outline: A failed call is unknown for a known keyboard and silent for an unknown one
+    # Still passes if: the failing call also printed a warning line
+    # test: tests/test_status.py::failed_call_unknown
+    Given the call for a profiled keyboard <failure> and <saved>
+    When the status is read
+    Then <result>
+
+    Examples:
+      | failure                                                         | saved                       | result                                                              |
+      | exits 1 with a UnicodeDecodeError traceback and no block         | a saved entry for it        | a section with every key unknown and readProblem solaarCrashed       |
+      | exits 1 with a traceback after printing its header only          | a saved entry for it        | a section with every key unknown (the half block is not complete)    |
+      | times out                                                        | a saved entry for it        | a section with every key unknown and readProblem timeout             |
+      | exits 0 with no output                                           | a saved entry for it        | a section with every key unknown and readProblem noOutput            |
+      | exits 1 with no device found matching its name                   | a saved entry for it        | no section (not present)                                             |
+      | exits 1 with a traceback and no block                            | no saved entry              | no section                                                           |
+
+  Scenario: An unknown keyboard never warns and is never restored
+    # Still passes if: the other keyboard has a different battery level
+    # test: tests/test_status.py::unknown_not_warning_not_restored
+    Given the MX Keys for Mac is unknown and the POP Icon Keys is routed
+    When the status is built, validated and the restore plan is made for each keyboard
+    Then validate_status accepts it, the unknown keys carry no reason and the keyboard has readProblem set
+    And the restore plan for the MX Keys for Mac sends nothing and exits 0 saying it could not read the keyboard
+
+  Scenario: The synthetic truncation fixture is built from the recording and labelled
+    # Still passes if: the recorded POP fixture is re-recorded with other battery numbers
+    # test: tests/test_status.py::synthetic_truncation_fixture
+    Given the test that builds the truncated output
+    Then it is the recorded masked POP fixture text followed by a second device header and the traceback text
+    And it is labelled synthetic with the date and the source of the traceback and no profile uses it as verification
 
   Scenario: Restore sends back only the dropped keys of one keyboard
     # Still passes if: the confirmation text changes

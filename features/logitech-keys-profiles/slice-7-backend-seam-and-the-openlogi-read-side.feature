@@ -39,7 +39,8 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
 
     Examples:
       | backend  | allowed                                                      |
-      | solaar   | solaar show all                                              |
+      | solaar   | solaar show "<selector>" for the shipped profiles' exact names and the saved-entry names matched by model id, one call per selector, never solaar show all |
+      | solaar   | the same with a third profile that has its own exact name     |
       | openlogi | openlogi api status and openlogi api devices                 |
 
   Scenario Outline: OpenLogi keyboards are matched by exact name only
@@ -60,6 +61,14 @@ Feature: Backends sit behind one seam and OpenLogi is read-only
       | MX Keys for Mac Plus    | names MX Keys for Mac                           | no match                                        |
       | Logi MX Keys Mac        | backends.openlogi.names Logi MX Keys Mac        | matched through the openlogi names              |
       | two devices both named POP Icon Keys | names POP Icon Keys                | both marked ambiguous and not restored          |
+
+  Scenario: The Solaar adapter's collect survives a crashing show call
+    # Still passes if: the crashing call is the first or the last
+    # test: tests/test_backend_contract.py::solaar_collect_crash
+    Given the Solaar backend's collect with a run function whose call for the MX Keys for Mac crashes with the UnicodeDecodeError text and whose call for the POP Icon Keys succeeds
+    When the status is built through the Solaar adapter
+    Then the POP Icon Keys section has its states, the MX Keys for Mac section has every key unknown and readProblem solaarCrashed, and the JSON passes validate_status
+    And the result equals Slice 2's builder for the same raw outputs
 
   Scenario: A ready OpenLogi inventory gives keyboard sections with the backend's battery
     # Still passes if: the second keyboard's battery level differs

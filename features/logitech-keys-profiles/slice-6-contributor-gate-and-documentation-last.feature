@@ -62,6 +62,8 @@ Feature: The repository gates keyboard contributions and documents them
       | the masking command for serial numbers and unit ids           | 00000000         |
       | the exact local test command                                  | tests/test_profiles.py |
       | testing your keyboard and sending a verified block            | verified         |
+      | the Solaar host-name bug can break plain solaar show and the workaround | UnicodeDecodeError |
+      | a keyboard that could not be read shows as Unknown            | Unknown          |
 
   Scenario: Every profile has a README row that says whether it is tested
     # Still passes if: the table gains a column
@@ -69,6 +71,7 @@ Feature: The repository gates keyboard contributions and documents them
     Given each profile in profiles/
     Then the README table has a row with its display name
     And the row says tested exactly when the profile has a verified block
+    And the POP Icon Keys row scopes the claim to the key mapping and the MX Keys for Mac row says untested
 
   Scenario: The shipped files use the new identity and the old name stays in an allowlist
     # Still passes if: the old name appears in a migration note
