@@ -174,6 +174,34 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
       | a write that is interrupted halfway               | the old record is intact and no temporary file is left             |
       | a successful write                                | no backup file is created for the record                           |
 
+  Scenario: The applied record has the backend, the switching marker and per-backend artifacts
+    # Still passes if: the record lists the profiles in another order
+    # test: tests/test_state.py::applied_backend_shape
+    Given a record written for the Solaar backend after setup applied both profiles
+    When the record is read back
+    Then it has schema 1, the plugin version, backend solaar, switching null and the two profiles with ids, matched names and model ids
+    And its artifacts hold the Solaar entries per slug, the rules block, the battery rules and the autostart block, the Hyprland bindings block, and an empty openlogi entry with enabledService false
+
+  Scenario Outline: The switching marker is written before and cleared after a switch
+    # Still passes if: the record is indented differently
+    # test: tests/test_state.py::switching_marker
+    Given a record with backend <from>
+    When the record is updated <step>
+    Then the record has backend <backend> and switching <switching>
+
+    Examples:
+      | from    | step                                      | backend | switching                      |
+      | solaar  | before a switch to openlogi begins        | solaar  | from solaar, to openlogi       |
+      | solaar  | after the switch finished                 | openlogi | null                          |
+      | openlogi | before a switch to solaar begins          | openlogi | from openlogi, to solaar      |
+
+  Scenario: A record with an unknown backend name is refused
+    # Still passes if: the record holds extra whitespace
+    # test: tests/test_state.py::applied_unknown_backend
+    Given a record whose backend is neither solaar nor openlogi
+    When the record is read
+    Then it is refused with code 4 and a message naming the file
+
   Scenario: A new keyboard needs data only
     # Still passes if: the third profile's label wording changes
     # test: tests/test_plan.py::new_keyboard_data_only
@@ -198,3 +226,6 @@ Feature: Solaar rules are generated from profiles and recognised in every shape
       | a user's rule on a profiled key can fire on a handled keyboard | lists it under "your own rules left unchanged" with a note that it will still fire              |
       | an uninstall with no applied record                          | says the v0.3 key set will be reset and lists the exact key names                                 |
       | the file changes are computed                                | lists the Solaar stop and restart notice and every file with its change                           |
+      | a keyboard's Set OS differs from its profile's osMode        | warns naming the keyboard, the expected mode and Solaar as the place to change it, and continues  |
+      | a keyboard's Set OS cannot be read                           | prints no OS mode warning                                                                         |
+      | an untested profile and a keyboard in another OS mode        | still warns (the check covers every profile)                                                      |

@@ -9,6 +9,40 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
     And the POP Icon Keys profile counts as tested because it records where and when it was verified
     And the MX Keys for Mac profile counts as untested because it records no verification
 
+  Scenario: Both shipped profiles run in MacOS mode, declared at the top level
+    # Still passes if: the display name of a profile changes
+    # test: tests/test_profiles.py::os_mode_macos
+    Given the POP Icon Keys and MX Keys for Mac profiles
+    Then each has the top-level OS mode MacOS and its verified block, if any, has no OS mode
+    And no shipped file says the keyboards run in Linux OS mode
+
+  Scenario Outline: The OS mode is a required top-level value from Solaar's list
+    # Still passes if: the profile's other fields change
+    # test: tests/test_profiles.py::os_mode_matrix
+    Given a valid profile changed so that <defect>
+    When the profile check runs
+    Then it fails naming that profile file and the field osMode, or accepts it for the rows that say accepted
+
+    Examples:
+      | defect                                                     |
+      | the OS mode is missing                                     |
+      | the OS mode is Ubuntu                                      |
+      | the OS mode is lowercase macos                             |
+      | the OS mode is an empty string                             |
+      | the OS mode is a number                                    |
+      | the verified block still holds an OS mode                  |
+      | the OS mode is Windows (accepted: it is on Solaar's list)  |
+
+  Scenario: The MX Keys for Mac profile equals the recorded hardware facts
+    # Still passes if: the recorded fixture's battery percentage differs
+    # test: tests/test_profiles.py::mx_matches_recording
+    Given the owner's masked recording of the MX Keys for Mac and Solaar's key table
+    Then the profile's model id is B36140920000 and its name is "MX Keys for Mac"
+    And its keys are 225 "Dashboard Launchpad/Action Center", 191 "Screen Capture/Print Screen", 111 "Screen Lock" and 10 "Calculator"
+    And its OS mode is MacOS and its battery feature is BATTERY STATUS and the recording shows the same Set OS, feature and Unifying receiver
+    And it has a note and no verified block
+    And the synthetic MX fixture files are gone and the recorded one is masked
+
   Scenario: Profiles use Solaar's own key names and ids
     # Still passes if: a label differs from the printed keycap
     # test: tests/test_profiles.py::pop_pairs_and_lock_binding
@@ -53,7 +87,10 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
       | two keys share a name                                           |
       | its model id is also listed by another profile                  |
       | its slug does not match its file name                           |
-      | the verified block lacks the OS mode                            |
+      | the verified block holds an OS mode (it is a top-level field now) |
+      | the battery feature is not UNIFIED BATTERY or BATTERY STATUS    |
+      | the battery field has a field the schema does not know          |
+      | the note has a newline                                          |
       | the verified block lacks the Fn-swap flag                       |
       | the verified Fn-swap flag is a string                           |
       | the verified date is not in the form year-month-day             |
@@ -62,6 +99,25 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
       | a label contains a newline                                      |
       | the file is not valid JSON                                      |
       | the top level of the file is a list                             |
+
+  Scenario Outline: The optional backends section is strict
+    # Still passes if: the profile's key labels change
+    # test: tests/test_profiles.py::backends_matrix
+    Given a valid profile changed so that <defect>
+    When the profile check runs
+    Then <outcome>
+
+    Examples:
+      | defect                                                                       | outcome                                              |
+      | it has no backends section                                                   | it passes (v0.4.0 ships none)                        |
+      | backends has a key other than openlogi                                       | it fails naming the file and the backends field      |
+      | backends.openlogi has a field the schema does not know                       | it fails naming the file and the field               |
+      | backends.openlogi.names holds an empty string                                | it fails naming the file and the field               |
+      | backends.openlogi.names holds a name with a newline                          | it fails naming the file and the field               |
+      | backends.openlogi.verified lists a cid the profile does not map              | it fails naming the file and the field               |
+      | backends.openlogi.verified has no recorded openlogi-devices.json fixture      | it fails naming the missing fixture                  |
+      | the openlogi-devices.json fixture is marked synthetic                        | it fails saying a synthetic fixture cannot verify    |
+      | backends.openlogi.verified has a recorded non-synthetic fixture and listed cids that exist | it passes                              |
 
   Scenario Outline: A Hyprland chord is accepted only in the fixed form
     # Still passes if: the list of accepted function keys grows
@@ -165,6 +221,8 @@ Feature: Keyboards are data files checked by one strict reader and matched by on
       | a hid or hidraw device path is present                          |
       | the model id differs from the profile's                         |
       | it is marked synthetic yet its profile has verified             |
+      | the first line is a recording header that carries no Solaar version |
+      | the profile's OS mode differs from the recording's Set OS line  |
       | the verified keyboard's recording has a profile key missing from both diversion lines |
 
   Scenario: Fixture variants are derived from the profile and match the recorded ones

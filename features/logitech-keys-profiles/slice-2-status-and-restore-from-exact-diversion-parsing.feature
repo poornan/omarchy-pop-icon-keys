@@ -121,25 +121,76 @@ Feature: The status helper reports each profiled keyboard exactly
     When the status is read
     Then no section appears for it
 
-  Scenario Outline: The battery is a number or null
+  Scenario Outline: The battery is an object from the keyboard's report, the query, or null
     # Still passes if: the battery line carries an extra status word
     # test: tests/test_status.py::battery_values
-    Given Solaar prints <battery line> for the keyboard
+    Given the keyboard's last connect was at <connected>, <report>, and Solaar prints <query>
     When the status is read
     Then the battery is <battery>
 
     Examples:
-      | battery line            | battery |
-      | Battery: 80%            | 80      |
-      | Battery: 0%             | 0       |
-      | no battery line         | null    |
+      | connected | report                                      | query                      | battery                                         |
+      | 09:00     | a report at 10:00 in the 10 to 19 bucket    | Battery: 100%              | value 15, source report, at 10:00               |
+      | 09:00     | a report at 08:00 in the 10 to 19 bucket    | Battery: 100%              | value 100, source query                         |
+      | 09:00     | no report file                              | Battery: 80%               | value 80, source query                          |
+      | 09:00     | no report file                              | Battery: 0%                | value 0, source query                           |
+      | 09:00     | no report file                              | no battery line            | null                                            |
+      | 09:00     | a damaged report file                       | Battery: 80%               | value 80, source query                          |
+      | 09:00     | a report with a bucket above 100            | Battery: 80%               | value 80, source query                          |
+      | unknown   | a report at 10:00 in the 0 to 9 bucket      | no battery line            | value 5, source report, at 10:00                |
+      | 09:00     | a report at 10:00 in the 90 to 100 bucket   | Battery: 20%               | value 95, source report, at 10:00               |
+
+  Scenario: The report file is read for the right keyboard only
+    # Still passes if: the other keyboard's file holds an older report
+    # test: tests/test_status.py::battery_per_slug
+    Given a report file for the MX Keys for Mac and none for the POP Icon Keys
+    When the status is read for both
+    Then only the MX Keys for Mac shows a report and the POP Icon Keys falls back to its query
+
+  Scenario Outline: The status carries a backend block and only known key states
+    # Still passes if: the backend's label text changes
+    # test: tests/test_status.py::status_contract
+    Given the status built for <backend> in <situation>
+    When the contract check runs
+    Then the JSON has schema 1, a backend block with name, experimental, installed, running, usable, problem, liveKeyState and otherRunning, and every key state is one of routed, dropped, notSetUp, absent or unsupportedByBackend
+    And <rule>
+
+    Examples:
+      | backend  | situation                              | rule                                                                  |
+      | Solaar   | the POP Icon Keys, all keys routed     | liveKeyState is true and experimental is false                        |
+      | Solaar   | both daemons running                   | otherRunning is null for Solaar when OpenLogi's agent is not running  |
+      | OpenLogi | the synthetic OpenLogi sample          | liveKeyState is false and no key is dropped                           |
+      | OpenLogi | the synthetic OpenLogi sample          | every key is unsupportedByBackend with reason notImplemented          |
+      | OpenLogi | the synthetic OpenLogi sample          | the battery source is backend and level may be null                   |
+      | any      | a status with dropped under liveKeyState false | the contract check fails naming the key                       |
+
+  Scenario: The committed samples match the builder and the OpenLogi one is labelled synthetic
+    # Still passes if: the sample keyboards' battery numbers change
+    # test: tests/test_status.py::samples_match_builder
+    Given tests/qml/status-sample.json and tests/qml/status-sample-openlogi.json
+    Then each equals the builder's output for its fixed input
+    And the OpenLogi sample carries the label "synthetic: doc-derived USAGE.md @9ca7ef0" and no real device name
+
+  Scenario Outline: The keyboard's Set OS value is read without any write
+    # Still passes if: Solaar prints the OS list in another order
+    # test: tests/test_status.py::os_mode_read
+    Given the keyboard's block has <lines>
+    When its OS mode is read
+    Then the mode is <mode>
+
+    Examples:
+      | lines                                  | mode      |
+      | Set OS (saved): MacOS and Set OS: MacOS | MacOS     |
+      | only Set OS: Windows                   | Windows   |
+      | Set OS (saved): MacOS and Set OS: Linux | Linux (the live line wins) |
+      | no Set OS line (older Solaar)          | unknown   |
 
   Scenario Outline: Solaar not usable, or nothing profiled connected
     # Still passes if: the helper takes a little longer to run
     # test: tests/test_status.py::solaar_states
     Given <situation>
     When the status helper runs
-    Then it exits 0 and prints valid JSON with installed <installed>, running <running> and <keyboards> keyboards
+    Then it exits 0 and prints valid JSON with backend installed <installed>, running <running> and <keyboards> keyboards
 
     Examples:
       | situation                                              | installed | running | keyboards |

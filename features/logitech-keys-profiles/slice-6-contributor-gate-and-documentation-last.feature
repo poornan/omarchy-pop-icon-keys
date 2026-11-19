@@ -19,6 +19,7 @@ Feature: The repository gates keyboard contributions and documents them
     # test: tests/test_repo.py::pr_template_items
     Given the pull request template
     Then it asks for the recorded fixture, masked serials, ids checked against solaar show, only existing action ids, a README row, an appended permanent slug and a truthful verified block
+    And it says the backends section is optional and a verified OpenLogi block needs a recorded, non-synthetic fixture
 
   Scenario: Code owners cover everything and the trusted paths explicitly
     # Still passes if: further owners are added
@@ -87,5 +88,35 @@ Feature: The repository gates keyboard contributions and documents them
     # Still passes if: the ADR text is edited for style
     # test: tests/test_repo.py::design_records
     Given the spec and ADRs
-    Then ADR 0005 is accepted and ADR 0006 exists
+    Then ADR 0005 is accepted and ADR 0006, 0007 and 0008 exist and are accepted
     And the spec has no "Device / Model" condition text, its AC3a does not call the swapped data comments, and it makes no both-tested or jq claim
+    And no shipped or design file says the keyboards run in "Linux OS mode" outside a sentence that calls it an error
+
+  Scenario: The README states the MacOS OS mode requirement and never says Linux mode
+    # Still passes if: the README's example keyboard changes
+    # test: tests/test_repo.py::readme_os_mode
+    Given the README
+    Then it says the keyboards must be in MacOS OS mode (Solaar Set OS), that the plugin does not change it and that other modes are untested
+    And it does not contain the phrase Linux OS mode or Linux mode as a recommendation
+
+  Scenario: The README has an experimental OpenLogi section with an install note and no piped installer
+    # Still passes if: the AUR package name is cited with a version
+    # test: tests/test_repo.py::readme_openlogi
+    Given the README
+    Then it has a section on OpenLogi that says the support is experimental and read-only, that keys are not mapped, and that setup never installs it
+    And it gives the AUR package, the udev reload and `systemctl --user enable --now openlogi-agent.service` as steps the owner runs
+    And it warns that OpenLogi's OS layout default may move a keyboard out of MacOS mode
+    And no line of the README pipes a download into a shell
+
+  Scenario Outline: The project rules forbid touching the real OpenLogi
+    # Still passes if: the rules are reworded
+    # test: tests/test_repo.py::claude_md_openlogi_rules
+    Given the project rules file
+    Then it contains the rule <rule>
+
+    Examples:
+      | rule                                                                                                  |
+      | never stop or restart the developer's OpenLogi agent in tests or reviews                              |
+      | checksum ~/.config/openlogi/config.toml and ~/.config/systemd/user/ before and after a build         |
+      | only the read-only openlogi api status and openlogi api devices commands may run on the real machine  |
+      | the backend seam: bash is process lifecycle only, Python does file work, OpenLogi is read-only and experimental |

@@ -65,6 +65,52 @@ Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
       | nothing                   |
       | only a mouse              |
 
+  Scenario: Setup records the backend and its artifacts
+    # Still passes if: the artifact lists are in another order
+    # test: tests/test_setup.sh::"applied record backend and artifacts"
+    Given Solaar has a saved entry for the POP Icon Keys
+    When I run setup and accept
+    Then the applied record says backend solaar and switching null
+    And its artifacts name the Solaar entries, the rules block, the battery rules, the autostart block and the Hyprland bindings block
+
+  Scenario: Setup installs the battery helper and the battery rules
+    # Still passes if: the helper is installed before or after the rules block
+    # test: tests/test_setup.sh::"battery helper and rules installed"
+    Given Solaar has a saved entry for the POP Icon Keys, whose profile has a battery feature
+    When I run setup and accept
+    Then the logitech-keys-battery helper is installed beside the Show Desktop helper
+    And the rules block holds ten battery rules for the POP Icon Keys and each one runs that helper with the keyboard's slug
+    And running setup again changes nothing and creates no backup
+
+  Scenario: Uninstall removes the state directory and nothing else
+    # Still passes if: the state directory holds an extra empty folder
+    # test: tests/test_setup.sh::"uninstall removes the state directory", tests/test_battery.py::remove_state
+    Given setup ran and the battery folder holds a report for the POP Icon Keys
+    When I run uninstall and accept
+    Then the whole logitech-keys state directory, the applied record and the battery files included, is gone
+    And no other folder under the state home is touched and the plan listed the removal
+    And a dry run removes nothing
+
+  Scenario Outline: Setup warns about a different OS mode and continues
+    # Still passes if: the warning wording changes
+    # test: tests/test_setup.sh::"os mode precondition"
+    Given the sandbox Solaar reports the keyboard's Set OS as <mode>
+    When I run setup
+    Then <result>
+
+    Examples:
+      | mode                  | result                                                                                          |
+      | MacOS                 | the plan has no OS mode warning                                                                 |
+      | Windows               | the plan warns naming the keyboard, the expected mode MacOS and Solaar, and accepting still applies the profile |
+      | no Set OS line        | the plan has no OS mode warning                                                                 |
+
+  Scenario: Setup and uninstall reach a backend only through its lifecycle functions
+    # Still passes if: the lifecycle function bodies change
+    # test: tests/test_setup.sh::"setup uses the lifecycle seam"
+    Given the setup and uninstall scripts
+    Then they call stop, start, running and installed only through the solaar_ functions of lib/backends/solaar.sh
+    And no bash code reads config.yaml, rules.yaml or a profile directly
+
   Scenario: Uninstall after setup
     # Still passes if: the backups are left in place
     # test: tests/test_setup.sh::"uninstall after two keyboards"

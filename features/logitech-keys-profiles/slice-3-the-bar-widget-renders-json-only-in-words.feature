@@ -150,6 +150,61 @@ Feature: One bar icon shows every connected profiled keyboard, in words
     And the single-key shortcuts for refresh, setup and restore are named in the buttons' tooltips
     And every state is also stated as text, so no state depends on colour or dimming
 
+  Scenario Outline: The battery reads as a figure, a report age, Full? or unknown
+    # Still passes if: the age wording changes from minutes to a time of day
+    # test: tests/qml/shell.qml::battery_forms, tests/qml_logic.py::pure_decisions
+    Given a keyboard whose battery is <battery>
+    Then the header shows <text>
+
+    Examples:
+      | battery                                       | text                    |
+      | a report of 15 taken five minutes ago         | ≈15% with the report's age |
+      | a query figure of 80                          | 80%                     |
+      | a query figure of 100                         | Full?                   |
+      | a backend figure of 100                       | Full?                   |
+      | a backend figure of 42 with no level          | 42%                     |
+      | null                                          | Battery unknown         |
+
+  Scenario: Keys the backend cannot route are dimmed and are not a warning
+    # Still passes if: the dimming opacity changes
+    # test: tests/qml/shell.qml::unsupported_by_backend
+    Given the synthetic OpenLogi sample where every key is unsupportedByBackend
+    Then each key row reads "Not supported by OpenLogi" and carries the dimmed flag
+    And the icon does not ask for setup or restore and the section shows the experimental badge
+    And battery and connection are still shown
+
+  Scenario Outline: A backend without live key state offers no restore
+    # Still passes if: the restore button label changes
+    # test: tests/qml/shell.qml::no_restore_without_live_state, tests/qml/decisions.json (rows "restore")
+    Given a backend whose liveKeyState is <live> and a keyboard whose keys are <keys>
+    Then the popup offers the Restore button <offered> and an automatic restore <auto>
+
+    Examples:
+      | live  | keys                    | offered | auto           |
+      | true  | lost                    | yes     | starts         |
+      | false | routed                  | no      | does not start |
+      | false | unsupportedByBackend    | no      | does not start |
+
+  Scenario: Both backends running is shown as a warning that stops nothing
+    # Still passes if: the warning is shown above or below the keyboards
+    # test: tests/qml/shell.qml::other_backend_running
+    Given the status says the other backend is running
+    Then the popup says both programs own the receiver and to quit one of them
+    And the widget starts no process and the icon state is decided only by the keys
+
+  Scenario Outline: An unusable backend says what to do in words
+    # Still passes if: the Refresh button is renamed
+    # test: tests/qml/shell.qml::backend_problems
+    Given the backend is not usable with problem <problem>
+    Then the popup says <message>
+
+    Examples:
+      | problem             | message                                                   |
+      | agentUnavailable    | OpenLogi's agent is not responding, with the start command |
+      | versionMismatch     | OpenLogi and its agent are different versions              |
+      | inventoryNotReady   | OpenLogi is still scanning, choose Refresh in a moment     |
+      | unknownSchema       | the widget cannot read OpenLogi's reply, update the plugin |
+
   Scenario: The widget knows no keyboard
     # Still passes if: the popup spacing changes
     # test: tests/test_repo.py::panel_has_no_names, tests/qml_logic.py::no_names
