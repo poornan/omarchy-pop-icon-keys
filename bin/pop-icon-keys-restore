@@ -1,0 +1,27 @@
+#!/bin/bash
+# Send the mapped keys to Solaar again after the keyboard dropped them (it does
+# this after sleeping or reconnecting, and Solaar does not always notice).
+#
+# Only for keys that Solaar's saved settings already divert: this re-applies
+# that saved setting to the keyboard and changes no file. With Solaar running,
+# `solaar config` hands the change to the running Solaar, which applies it and
+# saves the same value it already had.
+#
+# Usage: pop-icon-keys-restore [KEY...]   (default: the five mapped keys)
+set -uo pipefail
+
+DEVICE="POP Icon Keys"
+if (( $# )); then keys=("$@"); else keys=("Show Desktop" "MultiPlatform Search" "Dictation" "Emoji" "Screen Capture"); fi
+
+command -v solaar >/dev/null 2>&1 || { echo "error: Solaar is not installed" >&2; exit 1; }
+
+failed=0
+for key in "${keys[@]}"; do
+  if timeout 20 solaar config "$DEVICE" divert-keys "$key" Diverted >/dev/null 2>&1; then
+    echo "restored: $key"
+  else
+    echo "failed: $key" >&2
+    failed=1
+  fi
+done
+exit "$failed"

@@ -16,6 +16,7 @@ Panel {
   readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "")).replace(/\/$/, "")
   readonly property bool hideWhenDisconnected: setting("hideWhenDisconnected", true) === true
   readonly property bool showPercentage: setting("showPercentage", false) === true
+  readonly property bool autoRestore: setting("autoRestore", true) === true
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -28,15 +29,24 @@ Panel {
   property bool solaarRunning: false
   property bool connected: false
   property int battery: -1
-  property var divertedKeys: []
-  property var missingKeys: []
+  property var divertedKeys: []   // the keyboard sends these to Solaar right now
+  property var savedKeys: []      // Solaar's saved settings divert these
+  property var missingKeys: []    // not in the saved settings: setup is needed
+  property var inactiveKeys: []   // saved, but the keyboard dropped them (sleep/reconnect)
+
+  readonly property bool checking: statusProc.running
+  property bool refreshQueued: false
+  property bool restoring: restoreProc.running
+  property double lastAutoRestore: 0
+  property int setupChecksLeft: 0
 
   readonly property int lowBatteryPercent: 15
   readonly property bool lowBattery: connected && battery >= 0 && battery <= lowBatteryPercent
   readonly property bool needsSetup: loaded && (!solaarInstalled || (connected && (!solaarRunning || missingKeys.length > 0)))
+  readonly property bool needsRestore: loaded && connected && solaarRunning && inactiveKeys.length > 0
 
   readonly property color barIconColor: !connected ? Qt.darker(barForeground, 1.55)
-    : (lowBattery || needsSetup) ? urgent
+    : (lowBattery || needsSetup || needsRestore) ? urgent
     : barForeground
 
   // Each row: the key, its Solaar name (empty for keys Hyprland handles), and the Omarchy action.
@@ -54,12 +64,22 @@ Panel {
     return divertedKeys.indexOf(name) !== -1
   }
 
+  // Text for a key's row: ✓, "dropped" (keyboard forgot it; Restore fixes), or "not routed" (setup fixes).
+  function keyState(name) {
+    if (!loaded || !connected) return ""
+    if (keyRouted(name)) return "✓"
+    if (inactiveKeys.indexOf(name) !== -1) return restoring ? "restoring…" : "dropped"
+    return "not routed"
+  }
+
   function statusLine() {
     if (!loaded) return "Checking…"
     if (!solaarInstalled) return "Solaar is not installed"
     if (!connected) return "Keyboard not connected"
     if (!solaarRunning) return "Solaar is not running"
     if (missingKeys.length > 0) return missingKeys.length + " key(s) not routed. Run setup"
+    if (inactiveKeys.length > 0) return restoring ? "Restoring " + inactiveKeys.length + " key(s)…"
+      : "Keyboard dropped " + inactiveKeys.length + " key(s). Restore"
     return "All keys routed"
   }
 
@@ -76,19 +96,43 @@ Panel {
     var level = parseInt(values.battery, 10)
     battery = isFinite(level) ? level : -1
     divertedKeys = list(values.diverted)
+    savedKeys = list(values.saved)
     missingKeys = list(values.missing)
+    inactiveKeys = list(values.inactive)
     loaded = true
+    if (setupChecksLeft > 0 && !needsSetup) setupChecksLeft = 0
+    maybeAutoRestore()
   }
 
+  // A read already running is not interrupted; one more read is queued after it.
   function refresh() {
-    if (pluginDir === "" || statusProc.running) return
+    if (pluginDir === "") return
+    if (statusProc.running) { refreshQueued = true; return }
     statusProc.running = true
+  }
+
+  // Re-applies the saved diversion for the keys the keyboard dropped. Changes no file.
+  function restoreKeys() {
+    if (pluginDir === "" || restoreProc.running || inactiveKeys.length === 0) return
+    restoreProc.command = [pluginDir + "/bin/pop-icon-keys-restore"].concat(inactiveKeys)
+    restoreProc.running = true
+  }
+
+  // At most once a minute, so a keyboard that keeps dropping keys cannot cause a loop.
+  function maybeAutoRestore() {
+    if (!autoRestore || !needsRestore || restoreProc.running) return
+    var now = Date.now()
+    if (now - lastAutoRestore < 60000) return
+    lastAutoRestore = now
+    restoreKeys()
   }
 
   // Setup asks before changing any file, so it runs in a terminal the user can answer.
   function runSetup() {
     if (pluginDir === "") return
     Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", pluginDir + "/setup"])
+    // The terminal runs on its own, so check again every 10 s for 2 minutes, or until setup is no longer needed.
+    setupChecksLeft = 12
     close()
   }
 
@@ -109,10 +153,27 @@ Panel {
     id: statusProc
     command: [root.pluginDir + "/bin/pop-icon-keys-status"]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.parseStatus(text) }
+    onExited: if (root.refreshQueued) { root.refreshQueued = false; Qt.callLater(root.refresh) }
+  }
+
+  Process {
+    id: restoreProc
+    onExited: restoreCheck.restart()
   }
 
   // `solaar show` talks to the keyboard and takes a few seconds, so poll gently.
   Timer { interval: 120000; running: true; repeat: true; onTriggered: root.refresh() }
+
+  // Read again shortly after a restore, to show whether it worked.
+  Timer { id: restoreCheck; interval: 3000; repeat: false; onTriggered: root.refresh() }
+
+  // After the setup terminal opens.
+  Timer {
+    interval: 10000
+    running: root.setupChecksLeft > 0
+    repeat: true
+    onTriggered: { root.setupChecksLeft--; root.refresh() }
+  }
 
   IpcHandler {
     target: root.ipcTarget
@@ -120,6 +181,7 @@ Panel {
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { root.refresh(); return "ok" }
+    function restore(): string { root.restoreKeys(); return "ok" }
     function status(): string { return root.statusLine() }
   }
 
@@ -157,6 +219,7 @@ Panel {
         var key = String(t).toLowerCase()
         if (key === "r") root.refresh()
         else if (key === "s") root.runSetup()
+        else if (key === "k") root.restoreKeys()
       }
 
       Flickable {
@@ -244,7 +307,7 @@ Panel {
                   textFormat: Text.PlainText
                   anchors.right: parent.right
                   // Unknown until the first status read; keys Hyprland handles are always shown as ready.
-                  text: !root.loaded || !root.connected ? "" : (routed ? "✓" : "not routed")
+                  text: root.keyState(modelData.solaar)
                   color: routed ? root.dim : root.urgent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
@@ -269,7 +332,7 @@ Panel {
               textFormat: Text.PlainText
               width: parent.width
               wrapMode: Text.WordWrap
-              text: !root.loaded ? "Checking…"
+              text: !root.loaded || (root.checking && !root.connected) ? "Checking…"
                 : !root.solaarInstalled ? "Not installed. Setup can install it."
                 : root.solaarRunning ? "Running in the background"
                 : "Not running. Setup starts it and adds it to autostart."
@@ -290,7 +353,16 @@ Panel {
               }
 
               Button {
-                text: "Refresh"
+                visible: root.needsRestore
+                text: root.restoring ? "Restoring…" : "Restore"
+                tooltipText: "Send the dropped keys to Solaar again; changes no file (k)"
+                foreground: root.foreground
+                bordered: true
+                onClicked: root.restoreKeys()
+              }
+
+              Button {
+                text: root.checking ? "Checking…" : "Refresh"
                 tooltipText: "Read the keyboard again (r)"
                 foreground: root.foreground
                 bordered: true

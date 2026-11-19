@@ -1,5 +1,5 @@
 #!/bin/bash
-# Undo setup: remove this plugin's marked blocks and helper, give the keys back to the keyboard.
+# Undo setup: remove this plugin's rules, blocks and helper, give the keys back to the keyboard.
 set -euo pipefail
 
 # shellcheck source=lib.sh
@@ -10,51 +10,73 @@ usage() {
 Usage: uninstall [--dry-run] [--yes]
 
 Removes what setup added: the marked blocks in Solaar's rules, Hyprland's
-bindings and autostart, the Show Desktop helper, and the key diversion.
-Lines you added yourself, outside the marked blocks, are left alone.
+bindings and autostart, the Show Desktop helper, and the key diversion. Rules
+that are exact copies of this plugin's (left behind when Solaar's own rule
+editor rewrites rules.yaml without the markers) are removed too. Other lines
+and rules you added yourself are left alone.
 
-  --dry-run, -n   show every change without making it
+  --dry-run, -n   show each change (as a diff) without making it
   --yes, -y       accept the changes without asking
 EOF
 }
 
 parse_args "$@"
 
-say "POP Icon Keys uninstall will change these files (each is backed up first):"
-has_block "$RULES_FILE" "#" && say "  $RULES_FILE    remove the key rules block"
+command -v python3 >/dev/null 2>&1 || die "python3 is required but not installed"
+
+rules_block=0 bindings_block=0 autostart_block=0
+has_block "$RULES_FILE" "#" && rules_block=1
+has_block "$BINDINGS_FILE" "--" && bindings_block=1
+has_block "$AUTOSTART_FILE" "--" && autostart_block=1
+
+copies=()
+if [[ -f $RULES_FILE ]]; then
+  while IFS=$'\t' read -r kind key; do
+    [[ $kind == plugin ]] && copies+=("$key")
+  done < <(edit rules-scan "$RULES_FILE" "$SHOW_DESKTOP" || die "could not read $RULES_FILE")
+fi
+
+solaar_installed=0
+command -v solaar >/dev/null 2>&1 && solaar_installed=1
+
+say "POP Icon Keys uninstall will change these files (each is backed up first, newest 3 kept):"
+(( rules_block )) && say "  $RULES_FILE    remove the key rules block"
+(( ${#copies[@]} )) && say "  $RULES_FILE    remove copies of this plugin's rules outside the block: $(IFS=,; echo "${copies[*]}")"
 [[ -e $SHOW_DESKTOP ]] && say "  $SHOW_DESKTOP    delete"
-command -v solaar >/dev/null 2>&1 && say "  $SOLAAR_CONFIG    set the five mapped keys back to Regular (Solaar is restarted)"
-has_block "$BINDINGS_FILE" "--" && say "  $BINDINGS_FILE    remove the Lock key binding block"
-has_block "$AUTOSTART_FILE" "--" && say "  $AUTOSTART_FILE    remove the Solaar autostart block"
+(( solaar_installed )) && [[ -f $SOLAAR_CONFIG ]] \
+  && say "  $SOLAAR_CONFIG    set the five mapped keys back to Regular (Solaar is restarted if running)"
+(( bindings_block )) && say "  $BINDINGS_FILE    remove the Lock key binding block"
+(( autostart_block )) && say "  $AUTOSTART_FILE    remove the Solaar autostart block"
 say ""
-confirm "Apply these changes?" || { say "Nothing changed."; exit 1; }
+confirm "Apply these changes?" || { say "Nothing changed."; exit 0; }
 (( DRY_RUN )) && say "Dry run: showing the changes, writing nothing."
 
-if has_block "$RULES_FILE" "#"; then
-  backup "$RULES_FILE"
-  write_block "$RULES_FILE" "#" ""
+# Diversion first: it needs Solaar stopped, and if Solaar will not stop nothing has changed yet.
+was_running=0
+restart_on_exit() { (( was_running )) && start_solaar; return 0; }
+if (( solaar_installed )) && [[ -f $SOLAAR_CONFIG ]]; then
+  [[ -n $(solaar_pids) ]] && was_running=1
+  trap restart_on_exit EXIT
+  stop_solaar || { was_running=0; die "Solaar did not stop, so its settings could not be changed safely. Nothing was changed."; }
+  status=0
+  set_diversion 0 || status=$?
+  case $status in
+    0) ;;
+    3) warn "no saved Solaar entry for \"$DEVICE\"; no diversion to reset" ;;
+    *) die "could not update $SOLAAR_CONFIG (see above); nothing else was changed" ;;
+  esac
 fi
+
+(( ${#copies[@]} )) && { edit rules-drop-copies "$RULES_FILE" "$SHOW_DESKTOP" || die "$RULES_FILE was left unchanged"; }
+(( rules_block )) && write_block "$RULES_FILE" "#" ""
 
 [[ -e $SHOW_DESKTOP ]] && run rm -f -- "$SHOW_DESKTOP"
 
-if command -v solaar >/dev/null 2>&1; then
-  was_running=0
-  [[ -n $(solaar_pids) ]] && was_running=1
-  backup "$SOLAAR_CONFIG"
-  stop_solaar
-  set_diversion 0 || warn "no saved Solaar entry for \"$DEVICE\"; nothing to reset"
-  (( was_running )) && start_solaar
-fi
+(( was_running )) && start_solaar
+was_running=0
 
-if has_block "$BINDINGS_FILE" "--"; then
-  backup "$BINDINGS_FILE"
-  write_block "$BINDINGS_FILE" "--" ""
-fi
-
-if has_block "$AUTOSTART_FILE" "--"; then
-  backup "$AUTOSTART_FILE"
-  write_block "$AUTOSTART_FILE" "--" ""
-fi
+(( bindings_block )) && write_block "$BINDINGS_FILE" "--" ""
+(( autostart_block )) && write_block "$AUTOSTART_FILE" "--" ""
 
 reload_hyprland
 

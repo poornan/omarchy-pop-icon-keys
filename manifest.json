@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.poornan.pop-icon-keys",
   "name": "POP Icon Keys",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "poornan",
   "license": "MIT",
   "description": "Logitech POP Icon Keys on Omarchy: the Mac-style top row (Show Desktop, Search, Dictation, Emoji, Screen Capture, Lock) mapped to Omarchy actions through Solaar, with keyboard battery in the bar.",
@@ -20,7 +20,8 @@
     "defaultSection": "right",
     "defaults": {
       "hideWhenDisconnected": true,
-      "showPercentage": false
+      "showPercentage": false,
+      "autoRestore": true
     },
     "schema": [
       {
@@ -34,6 +35,12 @@
         "type": "boolean",
         "label": "Show the battery percentage next to the icon",
         "defaultValue": false
+      },
+      {
+        "key": "autoRestore",
+        "type": "boolean",
+        "label": "Send keys back to Solaar automatically when the keyboard drops them (after sleep or reconnecting)",
+        "defaultValue": true
       }
     ]
   }

@@ -46,6 +46,7 @@ run() {
   fi
 }
 
+# Ask a yes/no question. --yes and --dry-run answer yes; no terminal is an error.
 confirm() {
   (( ASSUME_YES )) && return 0
   (( DRY_RUN )) && return 0
@@ -55,41 +56,25 @@ confirm() {
   [[ $reply == [yY] || $reply == [yY][eE][sS] ]]
 }
 
-backup() {
-  local file=$1
-  [[ -f $file ]] || return 0
-  run cp -p -- "$file" "$file.bak.$MARK.$(date +%Y%m%d-%H%M%S).$$"
+# File edits live in lib/edit.py: it backs a file up only when it changes (keeping
+# the newest 3 backups), writes atomically, keeps CRLF, refuses broken markers,
+# and prints a diff instead of writing under --dry-run.
+edit() {
+  POP_DRY_RUN=$DRY_RUN python3 -I "$PLUGIN_DIR/lib/edit.py" "$@"
 }
 
-# Replace the marked block in FILE with BODY (or remove it when BODY is empty).
-# COMMENT is the file's line-comment prefix ("#" or "--").
+# Replace the marked block in FILE with BODY, or remove it when BODY is empty.
+# COMMENT is the file's line-comment prefix ("#" or "--"). Dies on broken markers.
 write_block() {
-  local file=$1 comment=$2 body=$3
-  if (( DRY_RUN )); then
-    if [[ -n $body ]]; then
-      printf '  [dry-run] write %s block in %s:\n' "$MARK" "$file"
-      printf '%s\n' "$body" | sed 's/^/      | /'
-    else
-      printf '  [dry-run] remove %s block from %s\n' "$MARK" "$file"
-    fi
-    return 0
-  fi
-  python3 -I - "$file" "$comment" "$MARK" "$body" <<'PY'
-import os, re, sys
-path, comment, mark, body = sys.argv[1:5]
-begin, end = f"{comment} BEGIN {mark}", f"{comment} END {mark}"
-text = open(path).read() if os.path.exists(path) else ""
-pattern = re.compile(r"\n?" + re.escape(begin) + r"\n.*?" + re.escape(end) + r"\n?", re.S)
-text = pattern.sub("\n", text).rstrip("\n")
-if body:
-    block = f"{begin}\n{body.rstrip(chr(10))}\n{end}"
-    text = f"{text}\n\n{block}" if text else block
-open(path, "w").write(text + "\n" if text else "")
-PY
+  printf '%s' "$3" | edit block "$1" "$2" || die "$1 was left unchanged"
 }
 
+# True when FILE has this plugin's marked block. Dies on broken markers.
 has_block() {
-  [[ -f $1 ]] && grep -qF -- "$2 BEGIN $MARK" "$1"
+  local rc=0
+  edit has-block "$1" "$2" || rc=$?
+  (( rc == 5 )) && die "$1 needs fixing by hand first"
+  (( rc == 0 ))
 }
 
 # Solaar's process name is "solaar" (it runs as a Python script), so match the
@@ -97,70 +82,50 @@ has_block() {
 # shell running this script.
 solaar_pids() { pgrep -x solaar 2>/dev/null || true; }
 
+# Stop Solaar and wait for it to exit. Solaar saves its settings up to 5 seconds
+# after a change and again on exit, so wait long enough for that save to land
+# before config.yaml is edited. Returns 1 if Solaar is still running.
 stop_solaar() {
   local pids
   pids=$(solaar_pids)
   [[ -n $pids ]] || return 0
+  if (( DRY_RUN )); then
+    say "  [dry-run] stop Solaar (pid $(echo $pids))"
+    return 0
+  fi
   # shellcheck disable=SC2086
-  run kill $pids
-  (( DRY_RUN )) && return 0
+  kill $pids 2>/dev/null || true
   local _
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in $(seq 1 16); do
     [[ -z $(solaar_pids) ]] && return 0
     sleep 0.5
   done
-  warn "Solaar did not stop; its config may be rewritten when it exits"
+  return 1
 }
 
 start_solaar() {
   [[ -n $(solaar_pids) ]] && return 0
   if (( DRY_RUN )); then
-    say "  [dry-run] setsid -f solaar --window=hide"
+    say "  [dry-run] start Solaar: setsid -f solaar --window=hide"
     return 0
   fi
-  setsid -f solaar --window=hide >/dev/null 2>&1 </dev/null
+  setsid -f solaar --window=hide >/dev/null 2>&1 </dev/null || warn "could not start Solaar; start it with: solaar --window=hide"
 }
 
 # Set the diversion of DIVERT_IDS to VALUE (1 diverted, 0 regular) in Solaar's
-# saved config, under the POP Icon Keys device. Solaar must be stopped: a
+# saved config, for every saved entry of the keyboard. Solaar must be stopped: a
 # running Solaar writes its in-memory state back over the file.
-# Exit 3 when the device has no entry yet (Solaar never saw the keyboard).
+# Returns 3 when Solaar has no saved entry for the keyboard yet, 4 when the file
+# could not be read or understood (left unchanged).
 set_diversion() {
-  local value=$1
-  if (( DRY_RUN )); then
-    printf '  [dry-run] set divert-keys %s to %s for "%s" in %s\n' "${DIVERT_IDS[*]}" "$value" "$DEVICE" "$SOLAAR_CONFIG"
-    return 0
-  fi
-  [[ -f $SOLAAR_CONFIG ]] || return 3
-  python3 -I - "$SOLAAR_CONFIG" "$DEVICE" "$value" "${DIVERT_IDS[@]}" <<'PY'
-import re, sys
-path, device, value, *ids = sys.argv[1:]
-text = open(path).read()
-# Each device is a top-level list item starting "- _NAME: <name>".
-m = re.search(r"^- _NAME: " + re.escape(device) + r"\n(?:(?!^- ).*\n?)*", text, re.M)
-if not m:
-    sys.exit(3)
-block = m.group(0)
-d = re.search(r"^(  divert-keys: )\{(.*?)\}", block, re.M | re.S)
-pairs = {}
-if d:
-    for item in d.group(2).replace("\n", " ").split(","):
-        if ":" in item:
-            k, v = item.split(":", 1)
-            pairs[int(k.strip())] = v.strip()
-for i in ids:
-    pairs[int(i)] = value
-flow = "  divert-keys: {" + ", ".join(f"{k}: {v}" for k, v in sorted(pairs.items())) + "}"
-if d:
-    new_block = block[:d.start()] + flow + block[d.end():]
-else:
-    new_block = block.rstrip("\n") + "\n" + flow + "\n"
-text = text[:m.start()] + new_block + text[m.end():]
-open(path, "w").write(text)
-PY
+  edit divert "$SOLAAR_CONFIG" "$DEVICE" "$1" "${DIVERT_IDS[@]}"
 }
 
 reload_hyprland() {
   command -v hyprctl >/dev/null 2>&1 || return 0
-  run hyprctl reload >/dev/null
+  if (( DRY_RUN )); then
+    say "  [dry-run] hyprctl reload"
+    return 0
+  fi
+  hyprctl reload >/dev/null 2>&1 || warn "could not reload Hyprland; the Lock key works after your next login"
 }

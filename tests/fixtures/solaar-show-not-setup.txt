@@ -1,0 +1,41 @@
+solaar version 1.1.20
+
+  1: POP Icon Keys
+     Device path  : None
+     WPID         : B38F
+     Codename     : POP Icon Keys
+     Kind         : keyboard
+     Protocol     : HID++ 4.5
+     Serial number: 00000000
+     Model ID:      B38F00000000
+     Unit ID:       00000000
+                 1: BL2 34.00.B0007
+                 0: RBK 95.00.B0007
+                 3: 
+                 2: 72
+     The power switch is located on the (unknown).
+     Supports 32 HID++ 2.0 features:
+         0: ROOT                   {0000} V0     
+         1: FEATURE SET            {0001} V0     
+         2: DEVICE FW VERSION      {0003} V7     
+            Firmware: 1 BL2 34.00.B0007 000000000000
+            Firmware: 0 RBK 95.00.B0007 000000000000
+            Firmware: 3   
+            Firmware: 2  72 
+            Unit ID: 00000000  Model ID: B38F00000000  Transport IDs: {'btleid': 'B38F'}
+         3: DEVICE NAME            {0005} V5     
+            Name: POP Icon Keys
+            Kind: keyboard
+         4: WIRELESS DEVICE STATUS {1D4B} V0     
+         5: CONFIG CHANGE          {0020} V0     
+            Configuration: 505d0000000000000000000000000000
+         6: DEVICE FRIENDLY NAME   {0007} V0     
+            Friendly Name: POP Icon Keys
+         7: PROPERTY ACCESS        {0011} V0     
+         8: UNIFIED BATTERY        {1004} V5     
+            Battery: 100%, BatteryStatus.DISCHARGING.
+         9: REPROG CONTROLS V4     {1B04} V6     
+            Key/Button Diversion (saved): {Show Desktop:Regular, Brightness Down:Regular, Brightness Up:Regular, MultiPlatform Search:Diverted, Mute Sound:Regular, Volume Down:Regular, Volume Up:Regular, Dictation:Regular, Emoji:Diverted, Screen Capture:Diverted, Play/Pause mini:Regular, Circle:Regular, Triangle:Regular, Diamond:Regular, Star:Regular}
+            Key/Button Diversion        : {Show Desktop:Regular, Brightness Down:Regular, Brightness Up:Regular, MultiPlatform Search:Regular, Mute Sound:Regular, Volume Down:Regular, Volume Up:Regular, Dictation:Regular, Emoji:Regular, Screen Capture:Regular, Play/Pause mini:Regular, Circle:Regular, Triangle:Regular, Diamond:Regular, Star:Regular}
+        10: CHANGE HOST            {1814} V1     
+     Battery: 100%, BatteryStatus.DISCHARGING.

@@ -66,6 +66,42 @@ ShellRoot {
       check("shown so setup can be reached", barPanel.shown, true)
       check("status line", barPanel.statusLine(), "Solaar is not installed")
 
+      console.log("keyboard dropped keys after sleep (auto-restore held back)")
+      barPanel.lastAutoRestore = Date.now()
+      status(["installed=1", "running=1", "connected=1", "battery=80", "diverted=",
+              "saved=" + all, "missing=", "inactive=" + all])
+      check("restore needed", barPanel.needsRestore, true)
+      check("setup not needed", barPanel.needsSetup, false)
+      check("status line", barPanel.statusLine(), "Keyboard dropped 5 key(s). Restore")
+      check("row says dropped", barPanel.keyState("Dictation"), "dropped")
+      check("icon turns urgent", String(barPanel.barIconColor), String(barPanel.urgent))
+
+      console.log("one key missing from the saved settings, one dropped")
+      status(["installed=1", "running=1", "connected=1", "battery=80",
+              "diverted=Show Desktop,MultiPlatform Search,Screen Capture",
+              "saved=Show Desktop,MultiPlatform Search,Screen Capture,Emoji",
+              "missing=Dictation", "inactive=Emoji"])
+      check("setup wins the status line", barPanel.statusLine(), "1 key(s) not routed. Run setup")
+      check("missing row", barPanel.keyState("Dictation"), "not routed")
+      check("dropped row", barPanel.keyState("Emoji"), "dropped")
+      check("routed row", barPanel.keyState("Show Desktop"), "✓")
+
+      console.log("auto-restore fires once, then waits a minute")
+      barPanel.lastAutoRestore = 0
+      status(["installed=1", "running=1", "connected=1", "battery=80", "diverted=",
+              "saved=" + all, "missing=", "inactive=" + all])
+      var first = barPanel.lastAutoRestore
+      check("auto-restore started", first > 0, true)
+      status(["installed=1", "running=1", "connected=1", "battery=80", "diverted=",
+              "saved=" + all, "missing=", "inactive=" + all])
+      check("not again within a minute", barPanel.lastAutoRestore, first)
+
+      console.log("no restore while Solaar is stopped")
+      status(["installed=1", "running=0", "connected=1", "battery=80", "diverted=",
+              "saved=" + all, "missing=", "inactive=" + all])
+      check("restore not offered", barPanel.needsRestore, false)
+      check("setup offered instead", barPanel.needsSetup, true)
+
       console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
     }
   }
