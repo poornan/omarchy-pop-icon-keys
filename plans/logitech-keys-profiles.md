@@ -1,0 +1,1983 @@
+# Plan: Logitech Keys — keyboard profiles (v0.4.0)
+
+**Created**: 2026-11-19 (rewritten the same day for the architect-reviewed design; revised after the five plan-review personas, see Plan Review Summary)
+**Branch**: feat/logitech-keys-profiles
+**Status**: approved — the owner pre-approved this design ("apply architect must-fix changes"; spec gate PASS after the architect review), so the interactive plan gate is skipped. All five plan-review personas returned needs-revision on the first draft; this revision resolves or explicitly decides every item (Plan Review Summary, Decided list).
+**Gherkin persistence**: features
+**Spec**: [docs/specs/logitech-keys-profiles.md](../docs/specs/logitech-keys-profiles.md) (26 criteria: AC1–AC22, the spec's AC3a which this plan numbers AC23, and AC24–AC26)
+**Design review**: `.dev-team-reports/architect-review-2026-11-19.md` (must-fix M1–M9, ADR 0005 additions; "Later" items are README notes only). The spec text fixes of M9 are commit `eff584c` on this branch (checked with `git log`).
+**ADRs**: [0005](../docs/adr/0005-device-profiles-for-other-keyboards.md) (accepted, amended twice), [0006](../docs/adr/0006-rename-to-logitech-keys.md)
+
+## Goal
+
+Turn the single-keyboard POP Icon Keys plugin (v0.3.0) into **Logitech Keys**
+(`io.github.poornan.logitech-keys`, v0.4.0). A keyboard is a data file in
+`profiles/` that names *actions* from a reviewed table; one reader validates it
+strictly; one identity module matches devices to profiles; status, restore,
+setup, uninstall and the bar widget get keyboard knowledge only through those
+two. POP Icon Keys (tested on real hardware) and MX Keys for Mac (untested, the
+worked example for contributors) ship together; every Solaar rule carries a
+`Device` condition; setup records what it applied and migrates a v0.3 install,
+including rules Solaar's editor rewrote without markers; the repo gates
+contributions with CI, a PR template and code owners.
+
+## Plan rules (apply to every slice and every commit)
+
+1. **Green after every slice and every step.** The tree builds, `bash tests/test_setup.sh`
+   and every Python test pass, and `omarchy-plugin-validate .` passes after each
+   commit. A slice never leaves a half-wired verb or a deleted file the old code
+   still reads (design D2).
+2. **One PR, kept** (the owner's workflow). It is built so each slice is green on
+   its own, and the contributor-gate and documentation slice (6) is last, so a
+   reviewer can read the PR slice by slice.
+3. **No two argument shapes under one `lib/edit.py` verb.** Slice 4 changes
+   library modules only; the v0.3 verbs keep their v0.3 arguments. New verbs
+   arrive in Step 5.0 under distinct names and the v0.3 verbs are deleted in
+   Step 5.4.
+4. **One owner per fact.** Identity matching: `lib/solaarcfg.py`. Profile and
+   action data and validation: `lib/profiles.py`. Escaping for YAML, Lua and
+   shell: `lib/rules.py`. The v0.3 table: `lib/legacy.py`. The applied record:
+   `lib/applied.py`. Plugin version: `manifest.json`, read in one function.
+   Keyboard names, key names and key text appear nowhere else.
+5. **Solaar-dependent checks never silently skip on the dev machine.** The key
+   table is injected into the reader and status; CI uses a pinned snapshot, the
+   dev machine uses the installed Solaar, and `LK_REQUIRE_SOLAAR=1` turns any
+   skip into a failure (see Step 1.3 and the Pre-PR gate).
+6. **Never run against the real `$HOME`.** Sandbox HOMEs with stubs only; the four
+   real config files are checksummed before and after the whole build.
+
+## Approach stance (decision-defaults axes)
+
+- **Replace vs merge:** merge, preserve existing content. Edits stay in marked
+  blocks, user rules and bindings are untouched, files are backed up only when
+  they change (all v0.3 safety kept). v0.3 artifacts are *migrated* into the new
+  blocks, not left beside them.
+- **Migrate vs edit in place:** migrate. The v0.3 id, markers and helper are
+  replaced by the new ones; the old plugin is not patched (ADR 0006, no
+  deprecation release: v0.3 was never submitted to the marketplace).
+- **Partial earlier build work** (uncommitted `lib/profiles.py`, `profiles/*.json`,
+  `tests/test_profiles.py`, fixtures, README table, `tests/test_setup.sh` path
+  edit, staged fixture renames): written before the architect review with the old
+  schema (argv in profiles, `tested` boolean, name matching, a profile directory
+  read from an environment variable). Reuse: `BAD_CHARS`/`_text` text hygiene,
+  slug rule, the `config_entries()` parser (moves to `lib/solaarcfg.py`), the
+  fixture directory layout, the MX key list, the README table and the
+  `.gitignore` line. Replace: the schema, validation, matching and fixture set.
+  The build slices own these files; nothing from the old shape is committed as is.
+- **Integration:** feature branch, PR to `main` through `/pr`, release tag on
+  `main` after merge. Nothing is pushed by the build.
+- **Scope:** the spec. "Later" items (setup-time cid warning, keycap labels vs
+  Fn-swap, release batching) are README/plan notes only. No schema-migration
+  machinery, no per-user overrides, no mice, no modifier conditions.
+- **Fixtures:** one recorded `solaar show` per profile plus variants *derived* by
+  a helper; full sandbox setup runs only for POP Icon Keys, the two-keyboard case
+  and migration; every other profile gets fast pure-Python checks.
+- **Slice shape:** six slices. The identity module (`lib/solaarcfg.py`) is built
+  in Slice 1 and imported read-only by Slices 2 and 4, so the status work and the
+  rule engine run side by side without sharing a file. `lib/edit.py` is split
+  into modules in Step 4.0 so it stops being the home of five responsibilities.
+  Setup (Slice 5) is cut from the engine because the setup tests are the long pole.
+
+## Acceptance Criteria
+
+Numbered as in the spec, except that the spec's AC3a carries the plan id AC23
+(the plan tooling wants whole-number ids); the spec says so and its new criteria
+start at AC24. Ticked at PR review after behavioural verification; traceability
+to tests is in the tables further down.
+
+- [ ] AC1 Plugin id `io.github.poornan.logitech-keys`, display name "Logitech Keys", README and install commands use `github.com/poornan/omarchy-logitech-keys`
+- [ ] AC2 With only the POP Icon Keys known to Solaar, behaviour matches POP spec AC1–AC18, including a fresh install (AC21); every v0.3 test section is kept, moved or deleted with a reason (inventory below)
+- [ ] AC3 MX Keys for Mac: 225 Launchpad to `app-launcher`, 191 Print Screen to `region-screenshot`, 111 Screen Lock to `lock`, 10 Calculator to `calculator`; the id set is exactly {225, 191, 111, 10}; 224 and 13 and media/brightness not diverted; marked untested
+- [ ] AC4 Both keyboards in one consent-gated setup; each keyboard's keys run its own actions, including a shared key name (checked with a synthetic profile, since the shipped profiles share none)
+- [ ] AC5 A keyboard is added by one profile, its one fixture and a README row, no script or QML change; a malformed profile or a missing fixture fails a test; status, `known` and the plan all pick the new keyboard up
+- [ ] AC6 One bar icon; popup lists every connected profiled keyboard with battery and per-key routing; icon warns if any keyboard needs setup or dropped keys; untested labelled
+- [ ] AC7 A keyboard that drops diversion is restored without touching the other, using the matched block's exact device name and never writing a config file; restore does nothing when the selector matches more than one device
+- [ ] AC8 New setup over v0.3 replaces `pop-icon-keys` blocks, one copy of each rule, user rules intact; uninstall removes old and new; setup after a migration is a no-op
+- [ ] AC9 README "Add your keyboard" section with the Fn-swap, cid-naming and release-batching notes, in the fixed README order, with a copy-paste masking command, the exact local test command, an example validator error, a worked diff and a "Test my keyboard" path; rollback is v0.4's own uninstall
+- [ ] AC10 All v0.3 safety tests pass (adapted), plus profile, two-keyboard, status, applied-state and migration tests; dev-team review passes before release
+- [ ] AC11 Identity by exact model id then exact name in one module; "MX Keys Mini" / "MX Keys S" do not match MX Keys for Mac; a profile named "MX Keys" is refused; status checks each block's `Model ID:` line
+- [ ] AC12 Diversion lines parsed in Python with exact name and cid matching (suffixed names correct); `Panel.qml` renders JSON and holds no keyboard or key names (stdlib check run by CI)
+- [ ] AC13 Keys and bindings name an action id; unknown id, `command` field, chord outside the regex, unknown field fail; the action table is validated too; rules and Lua generated from `lib/actions.json`; profile and action text reaches YAML, Lua and shell only through the rules module
+- [ ] AC14 Every generated rule has a `Device` condition over the profile's names and no `Model`, and fires only for its own keyboard (checked with Solaar's own evaluator); `classify()` treats new and v0.3 shapes as ours and a hand-written rule as "other", flagging overlap only where it can fire on a plugin-handled keyboard
+- [ ] AC15 A key in neither diversion line is `absent`: dimmed with a text state, not counted toward the needs-setup warning; the live-by-saved state table is pinned
+- [ ] AC16 `setup` writes `applied.json` (before the diversion as a superset, finalised after) and resets a control id a later profile drops (removing its rule); `uninstall` resets every recorded id and deletes it; other keys and user rules untouched
+- [ ] AC17 Legacy migration: unmarked v0.3 rules (incl. `pop-icon-keys-show-desktop` path at any home and v0.3 argument lists) replaced not duplicated, a near-miss rule left alone; old helper and old Lua blocks removed; warning if the old plugin is still installed
+- [ ] AC18 Reader enforces the schema incl. the Solaar `CONTROL` cross-check (live Solaar, else the pinned snapshot, so CI stays stdlib-only); every shipped profile passes; a test mutates a valid profile into each failure case; the dev gate runs the real-Solaar checks with zero skips
+- [ ] AC19 Tested only if `verified` has `solaar`, `date`, `osMode`, `fnSwap`; one recorded fixture per profile, first line has the Solaar version (equal to `verified.solaar`), serials, unit ids, MAC addresses and hid paths masked (test-enforced); a synthetic fixture never sets `verified`
+- [ ] AC20 CI workflow running the stdlib tests (actions pinned by SHA, `contents: read`), PR template with the checklist, CODEOWNERS (`* @poornan` plus explicit paths), structural repo checks
+- [ ] AC21 Fresh install with no Solaar entry for any profiled keyboard: the consent plan lists supported keyboards (tested/untested) and says setup applies whichever Solaar then records; setup is two-phase (resolve the set, then apply idempotently); declining exits 0 with no change; a Solaar that records only a mouse exits 2 with no record
+- [ ] AC22 Widget IPC target and QML module name are `logitech-keys`
+- [ ] AC23 (the spec's AC3a) Solaar's own names and ids for the POP profile (110, 212, 259, 264, 266) pinned by a test; the v0.3 212/266 swap in `RULES` is gone and `lib/edit.py` holds no name-to-id data
+- [ ] AC24 The applied record is robust: written before the diversion (union of old and new ids), finalised after, carries matched names and model ids so uninstall works without the profile file, atomic with no `.bak`, damaged or newer records refused with a message, `XDG_STATE_HOME` unset or relative handled, a dry run writes nothing
+- [ ] AC25 The widget states are text first: every key row says Active, Lost, Not set up or Not found (plus a glyph), untested keyboards say so in words, an all-absent keyboard says its profile may not match, warnings and failures say what to do; the popup is keyboard-operable
+- [ ] AC26 The consent plan is complete and ordered: per-keyboard blocks (tested or untested, keys, actions), file changes, the Solaar stop and restart notice, migration items, user rules left unchanged (with the still-fires note), the exit-2 text, and for an uninstall without a record the exact v0.3 key names
+
+## Slices
+
+Waves, derived by `plan_waves.py` (never hand-edited):
+1, then 2 and 4, then 3 and 5, then 6. Slices that touch the same file are
+ordered by `Depends-on`, never same-wave: `lib/edit.py` and `tests/test_edit.py`
+(4, then 5), `tests/test_setup.sh` (2, then 5), `lib/solaar-procs.sh` and
+`lib.sh` (5 only), `Panel.qml`, `manifest.json`, `tests/qml*` (3 only; it reads
+Slice 2's `tests/qml/status-sample.json` and no per-variant fixture),
+`lib/solaarcfg.py` (written in 1, imported read-only by 2 and 4), `README.md` (6 only).
+Every `# test:` comment under a scenario names the test that proves it
+(`path::check group`).
+
+### Slice 1: Profile schema, action table, the single reader and the identity module
+
+**Depends-on:** none
+**Files:** `lib/actions.json`, `lib/profiles.py`, `lib/solaarcfg.py`, `profiles/pop-icon-keys.json`, `profiles/mx-keys-mac.json`, `tests/test_profiles.py`, `tests/test_fixture_equality.py`, `tests/fixtures_derive.py`, `tests/solaar_table.py`, `tests/solaar_control_1.1.20.json`, `tests/permanent_slugs.txt`, `tests/fixtures/README.md`, `tests/fixtures/pop-icon-keys/show.txt`, `tests/fixtures/mx-keys-mac/show.txt`
+
+**Behavior:**
+
+```gherkin
+Feature: Keyboards are data files checked by one strict reader and matched by one identity module
+
+  Scenario: The shipped profiles are valid and tested only when verified
+    # Still passes if: a key's label text reads oddly
+    # test: tests/test_profiles.py::shipped_profiles_valid
+    Given the profiles folder with the POP Icon Keys and MX Keys for Mac profiles
+    When the profile check runs
+    Then both profiles pass
+    And the POP Icon Keys profile counts as tested because it records where and when it was verified
+    And the MX Keys for Mac profile counts as untested because it records no verification
+
+  Scenario: Profiles use Solaar's own key names and ids
+    # Still passes if: a label differs from the printed keycap
+    # test: tests/test_profiles.py::pop_pairs_and_lock_binding
+    Given the POP Icon Keys profile
+    Then Show Desktop is 110, MultiPlatform Search is 212, Dictation is 259, Emoji is 264 and Screen Capture is 266
+    And its Lock binding is the chord SUPER + CTRL + Q running the lock action
+
+  Scenario: MX Keys for Mac maps exactly four keys to named actions
+    # Still passes if: the key order inside the profile changes
+    # test: tests/test_profiles.py::mx_mapping_exact
+    Given the MX Keys for Mac profile
+    Then its control ids are exactly 225, 191, 111 and 10
+    And 225 runs the app launcher, 191 the region screenshot, 111 the lock action and 10 the calculator
+    And Mission Control (224) and Eject (13) are not listed
+
+  Scenario Outline: A malformed profile is refused and the file and field are named
+    # Still passes if: the reason text after the file and field names changes
+    # test: tests/test_profiles.py::mutation_matrix
+    Given a valid profile changed so that <defect>
+    When the profile check runs
+    Then it fails naming that profile file and the field at fault
+
+    Examples:
+      | defect                                                          |
+      | it has a field the schema does not know                         |
+      | a key has a field the schema does not know                      |
+      | the verified block has a field the schema does not know         |
+      | a key carries a command instead of an action                    |
+      | a key names an action not in the action table                   |
+      | a binding names an action not in the action table               |
+      | the schema field is missing                                     |
+      | the schema field is 2                                           |
+      | the model id is lowercase                                       |
+      | the model id has eleven digits                                  |
+      | the model id has thirteen digits                                |
+      | the list of model ids is empty                                  |
+      | the list of names is empty                                      |
+      | the list of keys is empty                                       |
+      | a key has a name but no control id                              |
+      | a key has a control id but no name                              |
+      | two keys share a control id                                     |
+      | two keys share a name                                           |
+      | its model id is also listed by another profile                  |
+      | its slug does not match its file name                           |
+      | the verified block lacks the OS mode                            |
+      | the verified block lacks the Fn-swap flag                       |
+      | the verified Fn-swap flag is a string                           |
+      | the verified date is not in the form year-month-day             |
+      | the verified Solaar version is not a version number             |
+      | a label contains a double quote                                 |
+      | a label contains a newline                                      |
+      | the file is not valid JSON                                      |
+      | the top level of the file is a list                             |
+
+  Scenario Outline: A Hyprland chord is accepted only in the fixed form
+    # Still passes if: the list of accepted function keys grows
+    # test: tests/test_profiles.py::chord_boundary_table
+    Given a profile whose binding chord is <chord>
+    When the profile check runs
+    Then the chord is <verdict>
+
+    Examples:
+      | chord                                      | verdict  |
+      | SUPER + CTRL + Q                           | accepted |
+      | SUPER + F5                                 | accepted |
+      | SHIFT + ALT + SUPER + CTRL + A             | accepted |
+      | Q alone with no modifier                   | refused  |
+      | SUPER + CTRL with no key                   | refused  |
+      | SUPER + Q + W with two keys                | refused  |
+      | SUPER + SUPER + Q with a repeated modifier | refused  |
+      | an empty chord                             | refused  |
+      | a chord containing a double quote          | refused  |
+      | a chord ending in a newline                | refused  |
+      | a chord containing a backslash             | refused  |
+      | a chord containing two closing square brackets | refused |
+      | super + q in lowercase                     | refused  |
+      | SUPER+Q without spaces                     | refused  |
+      | SUPER + Q with a trailing space            | refused  |
+
+  Scenario Outline: A malformed action table is refused
+    # Still passes if: the action ids are listed in another order
+    # test: tests/test_profiles.py::action_table_mutations
+    Given the action table changed so that <defect>
+    When the profile check runs
+    Then it fails naming the action table and the action id at fault
+
+    Examples:
+      | defect                                         |
+      | an action names a helper the plugin does not ship |
+      | an action's argument list holds a number       |
+      | an action's argument list is empty             |
+      | an action's argument holds a newline           |
+      | two actions share an id                        |
+      | an action has both an argument list and a helper |
+
+  Scenario: One keyboard's name may not be a substring of another's
+    # Still passes if: two profiles share a key name with the same action
+    # test: tests/test_profiles.py::substring_name_refused
+    Given a second profile named "MX Keys" next to "MX Keys for Mac"
+    When the profile check runs
+    Then it fails because the name would match both keyboards
+
+  Scenario: Two profiles may not bind one chord to different actions
+    # Still passes if: two profiles bind the same chord to the same action
+    # test: tests/test_profiles.py::chord_conflict_refused
+    Given two profiles that both bind SUPER + CTRL + Q, one to lock and one to the app launcher
+    When the profile check runs
+    Then it fails naming both profile files
+
+  Scenario Outline: Names and ids are checked against Solaar's own key table
+    # Still passes if: the table lists more keys than the profiles use
+    # test: tests/test_profiles.py::key_table_cross_check
+    Given the key table is <table>
+    When the profile check runs
+    Then <outcome>
+
+    Examples:
+      | table                                                      | outcome                                                                |
+      | a supplied table that agrees with every profile            | every profile passes                                                   |
+      | a supplied table where one id has another name             | it fails naming the profile, the key and both names                    |
+      | the installed Solaar's table                               | every profile passes and the source is reported as Solaar              |
+      | the pinned snapshot because Solaar cannot be imported      | every profile passes and the source is reported as the snapshot        |
+      | not available at all                                       | the cross-check is skipped with a printed note and nothing else is skipped |
+      | not available and LK_REQUIRE_SOLAAR is 1                   | the run fails saying a Solaar check was skipped                        |
+
+  Scenario: A released slug cannot be renamed or dropped
+    # Still passes if: a new profile is added
+    # test: tests/test_profiles.py::permanent_slugs
+    Given the frozen list of shipped slugs
+    When a shipped slug has no profile file
+    Then the profile check fails naming the slug
+
+  Scenario: A profile without its recorded fixture fails
+    # Still passes if: the fixture holds extra devices
+    # test: tests/test_profiles.py::fixture_required
+    Given a profile with no recorded fixture folder
+    When the profile check runs
+    Then it fails naming the missing fixture
+
+  Scenario Outline: A fixture must be masked, versioned and honestly labelled
+    # Still passes if: the fixture has trailing blank lines
+    # test: tests/test_profiles.py::fixture_rules
+    Given a recorded fixture where <defect>
+    When the fixture check runs
+    Then it fails naming the fixture
+
+    Examples:
+      | defect                                                          |
+      | the first line does not carry the Solaar version                |
+      | the Solaar version differs from the profile's verified version  |
+      | a serial number is not masked                                   |
+      | a unit id is not masked                                         |
+      | a MAC address is present                                        |
+      | a hid or hidraw device path is present                          |
+      | the model id differs from the profile's                         |
+      | it is marked synthetic yet its profile has verified             |
+      | the verified keyboard's recording has a profile key missing from both diversion lines |
+
+  Scenario: Fixture variants are derived from the profile and match the recorded ones
+    # Still passes if: the derived MX Keys for Mac variants are spaced differently
+    # test: tests/test_profiles.py::derived_variants, tests/test_fixture_equality.py::derived_equals_recorded
+    Given the recorded fixture of a profile
+    When the routed, dropped and not-set-up variants are derived
+    Then routed has every mapped key diverted in both lines
+    And dropped has them diverted when saved and regular live
+    And not-set-up has some keys regular when saved
+    And for the POP Icon Keys each derived variant equals the variant recorded in v0.3
+
+  Scenario Outline: A Solaar device is matched to a profile by model id, then by exact name
+    # Still passes if: the device's battery level differs
+    # test: tests/test_profiles.py::identity_matcher
+    Given a device with model id <model id> and name <name>
+    When the device is matched against the shipped profiles
+    Then it matches <profile>
+
+    Examples:
+      | model id                       | name                | profile                  |
+      | B38F00000000                   | POP Icon Keys       | POP Icon Keys            |
+      | B38F00000000                   | a renamed keyboard  | POP Icon Keys            |
+      | all zeros                      | POP Icon Keys       | POP Icon Keys            |
+      | the name stored as the model id| POP Icon Keys       | POP Icon Keys            |
+      | B36140920000                   | MX Keys for Mac     | MX Keys for Mac          |
+      | an unknown model id            | MX Keys S           | no profile               |
+      | an unknown model id            | MX Keys Mini        | no profile               |
+      | B04200000000                   | MX Master 4         | no profile               |
+
+  Scenario: Bluetooth and Bolt entries of one keyboard both match
+    # Still passes if: the entries appear in another order in the file
+    # test: tests/test_profiles.py::known_two_entries
+    Given Solaar's saved settings hold two entries for one keyboard with different names
+    When the saved entries are matched
+    Then both entries are returned with their line spans
+
+  Scenario: The reader's command line validates and lists profiles
+    # Still passes if: the command line prints profiles in another order
+    # test: tests/test_profiles.py::cli_validate_list
+    Given the profiles folder with the shipped profiles
+    When the reader's validate and list commands run
+    Then validate exits 0 and list prints one line per profile with its slug, display name and tested flag
+    And a broken profiles folder exits 4 naming the file
+```
+
+**Steps:**
+
+#### Step 1.1: Action table, new-schema profiles and the reader's loader
+
+**Complexity**: standard
+**IMPLEMENT**: Add `lib/actions.json` (`"schema": 1`, then action id to `{"argv": [...]}` or `{"helper": "<name>"}`; ids `show-desktop` (helper), `app-launcher`, `dictation`, `emoji-picker`, `region-screenshot`, `lock`, `calculator`). Rewrite `lib/profiles.py` as **pure data**: `"schema": 1` profiles with `modelIds`, `names`, `keys` of `{name, cid, label, action}`, optional `bindings` of `{chord, action, label}`, optional `verified` `{solaar, date, osMode, fnSwap}`; `load_all(directory)` and `load_actions(path)` take their paths as **arguments** (no environment variable; the default directory is computed from the module's own location by the caller); `tested` is derived from `verified`; `resolve_action(action_id, actions, helper_dir)` returns an argv list (a `{"helper": ...}` entry becomes `<helper_dir>/<helper>` joined as a path, never a shell string). The module is stdlib-only, importable with an explicit `sys.path` (scripts run as `python3 -I`). Rewrite the two shipped profiles in the new schema (POP: model id B38F00000000, 110/212/259/264/266, the Lock binding `SUPER + CTRL + Q` to `lock`, `verified` solaar 1.1.20, 2026-11-19, Linux, fnSwap true; MX: model id B36140920000, 225/191/111/10, no `verified`). Reuse the partial work's text hygiene (`BAD_CHARS`).
+**TEST**: `tests/test_profiles.py` (rewritten): shipped profiles load; `tested` derives from `verified`; POP pairs 110/212/259/264/266 pinned and the Lock binding pinned; the MX id set equals exactly {225, 191, 111, 10} with the four actions; 224 and 13 absent; `resolve_action` returns the helper path under a given directory.
+**REFACTOR**: Drop the `tested` boolean, `cap`, `command`, `hyprBindings`, `solaarNames` and the environment-variable directory override from the old shape; one `_text()` helper for string fields.
+**Files**: `lib/actions.json`, `lib/profiles.py`, `profiles/pop-icon-keys.json`, `profiles/mx-keys-mac.json`, `tests/test_profiles.py`
+**Covers**: AC3, AC19, AC23
+**Commit**: `Describe keyboards as profiles that name actions`
+
+#### Step 1.2: Strict validation, the chord regex and the mutation matrix
+
+**Complexity**: complex
+**IMPLEMENT**: Strict validation in the single reader, errors as `ProfileError(file, field, reason)`: unknown fields fail at every level (profile, key, binding, verified, action); `command` refused; `schema` must be the integer 1; action ids resolved against the action table; the chord is `re.fullmatch` of `(?:(?:SUPER|CTRL|ALT|SHIFT) \+ ){1,4}(?:[A-Z0-9]|F(?:[1-9]|1[0-2]))` with no repeated modifier (`fullmatch`, never `$`, so a trailing newline is refused); model id `[0-9A-F]{12}` exactly; non-empty `modelIds`, `names`, `keys`; cid paired with name, unique cids and names within a profile; label required; `verified.solaar` a dotted version, `date` a real `YYYY-MM-DD`, `osMode` a non-empty string, `fnSwap` a bool; unique slugs, slug equals file name; no model id listed by two profiles; no profile name that is a substring of another profile's name; the same chord in two profiles maps to the same action (a conflict names both files); invalid JSON or a non-object top level is a `ProfileError`, not a traceback. Action table validation: ids unique (duplicate JSON keys detected with `object_pairs_hook`), each entry exactly one of `argv` (non-empty list of strings without control characters) or `helper` (one of the helpers the plugin ships). Quotes, colons, commas, brackets and `#` are **allowed** in an argument: the rules module escapes them (Step 4.1). Boundary table for the chord (all rows are test cases): `SUPER + CTRL + Q` accepted; `SUPER + F5` accepted; `SHIFT + ALT + SUPER + CTRL + A` accepted; `Q` (no modifier) refused; `SUPER + CTRL` (modifier only) refused; `SUPER + Q + W` (two keys) refused; `SUPER + SUPER + Q` refused; empty refused; a double quote refused; a trailing newline refused; a backslash refused; `]]` refused (it closes a Lua long string); lowercase refused; no spaces around `+` refused; trailing space refused.
+**TEST**: A table-driven mutation test turns a copy of a valid profile into each defect in the Outline's Examples and asserts the refusal names the file and field; the chord boundary table; the action-table mutation table (its own rows, naming the action id); the substring case; the chord conflict; every shipped profile still passes.
+**REFACTOR**: One `ProfileError`; the mutation table is the one place failure cases are listed (the Gherkin Examples mirror it).
+**Files**: `lib/profiles.py`, `tests/test_profiles.py`
+**Covers**: AC11, AC13, AC18
+**Commit**: `Validate profiles and the action table strictly`
+
+#### Step 1.3: Injected key table, pinned snapshot and the zero-skip switch
+
+**Complexity**: standard
+**IMPLEMENT**: The reader takes the key table as a parameter: `check_key_table(profiles, table)` where `table` is `{name: cid}` or `None` (None returns a skip note and checks nothing else away). `tests/solaar_table.py` supplies it: the installed Solaar's `logitech_receiver.special_keys.CONTROL` when importable (source `solaar`), else the committed snapshot `tests/solaar_control_1.1.20.json` (source `snapshot`; name to cid plus the Solaar version, generated once by `python3 tests/solaar_table.py --snapshot` from the installed Solaar 1.1.20). With `LK_REQUIRE_SOLAAR=1` a Solaar that cannot be imported raises instead of falling back, and every test file prints a final line `solaar checks: <run> run, <skipped> skipped`; the pre-PR gate fails unless it reads `0 skipped`. A test asserts the snapshot agrees with the installed Solaar for every name the profiles use (and records the version). Add `tests/permanent_slugs.txt` (`pop-icon-keys`, `mx-keys-mac`); `test_profiles.py` fails when a listed slug has no profile or a profile slug is not listed after release (a new profile must append its slug to the file in the same PR).
+**TEST**: Fake table that agrees; fake table where 212 is named differently (names profile, key, both names); live Solaar; snapshot (forced by hiding Solaar from `sys.modules`); no table (skip note printed, other rules still enforced); no table with `LK_REQUIRE_SOLAAR=1` (failure); permanent slug missing.
+**REFACTOR**: None needed beyond sharing `solaar_table.py` with Slices 2 and 4's tests (they import it read-only).
+**Files**: `lib/profiles.py`, `tests/solaar_table.py`, `tests/solaar_control_1.1.20.json`, `tests/permanent_slugs.txt`, `tests/test_profiles.py`
+**Covers**: AC18, AC23
+**Commit**: `Cross-check key names against an injected table with a pinned snapshot`
+
+#### Step 1.4: Recorded fixtures, masking and derived variants
+
+**Complexity**: standard
+**IMPLEMENT**: One fixture per profile: `tests/fixtures/pop-icon-keys/show.txt` (the recorded POP output, first line `solaar version 1.1.20`, masked) and `tests/fixtures/mx-keys-mac/show.txt` (hand-written, with a `# synthetic` line directly under the version line). `tests/fixtures_derive.py` derives the routed, dropped and not-set-up variants from the profile and the fixture (command line: `fixtures_derive.py <slug> routed|dropped|not-setup`; also importable). `tests/fixtures/README.md` rewritten to the one-recorded-plus-derived rule. The old variant files (`routed.txt`, `dropped.txt`, `not-setup.txt`) stay until Step 5.4 because the v0.3 `tests/test_setup.sh` still reads them; `tests/test_fixture_equality.py` asserts the derived POP variants equal them byte for byte, so the equivalence is automated, not a one-off hand comparison (the old MX variants are synthetic and are only deleted).
+**TEST**: Each profile has a fixture; the first line carries a Solaar version and, for a `verified` profile, equals `verified.solaar`; serial numbers and unit ids are `00000000`; no MAC address pattern (six hex pairs with colons or dashes) and no `/dev/hidraw` or `hid` device path; the model id equals one of the profile's `modelIds`; a synthetic fixture never accompanies a `verified` profile; the recorded POP fixture has zero absent keys (every profile key in at least one diversion line); derived variants have the stated states; derived POP variants equal the v0.3 files.
+**REFACTOR**: Share the diversion-line rewriter between `fixtures_derive.py` and the tests (no duplicate regex).
+**Files**: `tests/fixtures_derive.py`, `tests/fixtures/README.md`, `tests/fixtures/pop-icon-keys/show.txt`, `tests/fixtures/mx-keys-mac/show.txt`, `tests/test_fixture_equality.py`, `tests/test_profiles.py`
+**Covers**: AC5, AC19
+**Commit**: `Record one fixture per profile and derive the variants`
+
+#### Step 1.5: The identity module and the reader's command line
+
+**Complexity**: standard
+**IMPLEMENT**: `lib/solaarcfg.py` is the **only** place that decides which profile a Solaar device belongs to. `config_entries(text)` parses `config.yaml` into entries `{name (_NAME), model_id (_modelId), first, last}` with line spans for later edits (it keeps the partial work's parser, handles CRLF and block or flow style, and treats a top-level non-device item as a boundary); Solaar stores the device **name** in `_modelId` when the model id is all zero, so an entry whose `_modelId` is not twelve hex digits is matched on that value as a name. `match_device(profiles, model_id, name)` returns the profile or None: exact model id first, then exact name; never a substring. `known(profiles, config_text)` returns `[(profile, [entries])]` using `match_device` (every Bluetooth and Bolt entry of one keyboard). `ambiguous(selector, other_names)` is the shared test for "this name is contained in another device's name". Reader command line for bash and the status helper: `profiles.py validate [dir]` and `profiles.py list [dir]` (`<slug>\t<displayName>\t<tested 0|1>`); a broken profile exits 4 naming the file. Slices 2 and 4 import `solaarcfg` read-only; nothing else defines matching.
+**TEST**: The identity outline (model id match when the name differs; exact name when the model id is all zero; the name stored in `_modelId`; never by substring, so "MX Keys S" and "MX Keys Mini" match nothing; a mouse matches nothing); two entries for one keyboard both returned with spans; the CLI exits 0 on the shipped profiles and 4 on a broken folder; `ambiguous` true for a name contained in another's.
+**REFACTOR**: Remove the old `known()`, `matches()` and `cids` command shapes from `lib/profiles.py`; leave no second matcher anywhere.
+**Files**: `lib/solaarcfg.py`, `lib/profiles.py`, `tests/test_profiles.py`
+**Covers**: AC5, AC11
+**Commit**: `Match Solaar devices to profiles in one identity module`
+
+### Slice 2: Status and restore from exact diversion parsing
+
+**Depends-on:** 1
+**Files:** `lib/status.py`, `bin/logitech-keys-status`, `bin/logitech-keys-restore`, `bin/logitech-keys-show-desktop`, `tests/test_status.py`, `tests/test_setup.sh`, `tests/qml/status-sample.json`
+
+**Behavior:**
+
+```gherkin
+Feature: The status helper reports each profiled keyboard exactly
+
+  Scenario: A routed POP Icon Keys
+    # Still passes if: the battery percentage differs
+    # test: tests/test_status.py::routed_pop
+    Given Solaar shows a POP Icon Keys with all five mapped keys diverted live and saved
+    When the status is read
+    Then one keyboard section appears with its battery, its display name and the tested flag
+    And every mapped key is routed with its label
+    And its Lock binding is listed as SUPER + CTRL + Q
+
+  Scenario Outline: The live and saved diversion lines decide each key's state
+    # Still passes if: the key is the first or the last in the line
+    # test: tests/test_status.py::state_table
+    Given a mapped key that is <live> in the live line and <saved> in the saved line
+    When the status is read
+    Then the key's state is <state>
+
+    Examples:
+      | live      | saved         | state    |
+      | diverted  | diverted      | routed   |
+      | diverted  | regular       | notSetUp |
+      | diverted  | not listed    | notSetUp |
+      | diverted  | no saved line | routed   |
+      | regular   | diverted      | dropped  |
+      | regular   | regular       | notSetUp |
+      | regular   | not listed    | notSetUp |
+      | regular   | no saved line | notSetUp |
+      | not listed| diverted      | dropped  |
+      | not listed| regular       | notSetUp |
+      | not listed| not listed    | absent   |
+      | not listed| no saved line | absent   |
+
+  Scenario: Older Solaar with no saved line reports from the live line only
+    # Still passes if: the live line lists the keys in a different order
+    # test: tests/test_status.py::older_solaar_live_only
+    Given Solaar prints a live diversion line and no saved line
+    When the status is read
+    Then diverted keys are routed and regular keys are not set up and no key is dropped
+
+  Scenario: Derived variants read back as the states they were derived for
+    # Still passes if: the derived text lists the keys in a different order
+    # test: tests/test_status.py::derived_round_trip
+    Given the routed, dropped and not-set-up variants derived for every shipped profile
+    When each variant is read
+    Then routed gives every mapped key routed, dropped gives every key dropped, and not-set-up gives the intended mix
+
+  Scenario Outline: Suffixed Solaar key names are matched exactly
+    # Still passes if: Solaar prints the lines with different spacing
+    # test: tests/test_status.py::suffixed_names
+    Given a diversion line for <profile> where <regular key> is regular and <diverted key> is diverted
+    When the status is read
+    Then <diverted key> is routed and <regular key> does not change any other key
+
+    Examples:
+      | profile         | regular key  | diverted key                   |
+      | POP Icon Keys   | Search       | MultiPlatform Search           |
+      | MX Keys for Mac | Print Screen | Screen Capture/Print Screen    |
+
+  Scenario: Control ids are not confused between keys
+    # Still passes if: the other three keys are routed or not
+    # test: tests/test_status.py::regression_212_266
+    Given id 212 is diverted and id 266 is regular in the POP Icon Keys diversion lines
+    When the status is read
+    Then MultiPlatform Search is routed and Screen Capture is not set up
+
+  Scenario Outline: Solaar's own key table decides which name a control id has
+    # Still passes if: the table lists more keys than the profiles use
+    # test: tests/test_status.py::key_table_injection
+    Given the key table is <table>
+    And the diversion line names the key for id 212 as <printed name>
+    When the status is read for the POP Icon Keys
+    Then the key for id 212 is <state> and the status notes that the table was <note>
+
+    Examples:
+      | table                                    | printed name                | state    | note        |
+      | a supplied table that agrees with the profile | MultiPlatform Search   | routed   | used        |
+      | a supplied table naming id 212 "Search X"| Search X                    | routed   | used        |
+      | not available                            | Search X                    | absent   | unavailable |
+      | not available                            | MultiPlatform Search        | routed   | unavailable |
+
+  Scenario: A key in neither line is absent
+    # Still passes if: the absent key's label changes
+    # test: tests/test_status.py::absent_key
+    Given a profile key that appears in neither diversion line
+    When the status is read
+    Then that key is absent and the rest of the keyboard's keys keep their states
+
+  Scenario: A new keyboard needs data only
+    # Still passes if: the third profile's label wording changes
+    # test: tests/test_status.py::new_keyboard_data_only
+    Given a third profile and its recorded fixture added to a temporary profiles folder
+    When the status is read for a Solaar that shows that keyboard
+    Then the status has a section for it, marked untested, with its keys, and no code changed
+
+  Scenario Outline: Look-alike devices are not the profiled keyboard
+    # Still passes if: the look-alike has the same battery level
+    # test: tests/test_status.py::lookalike_models
+    Given Solaar shows a real MX Keys for Mac and a device named <look-alike> with another model id
+    When the status is read
+    Then only the real device gets the MX Keys for Mac section
+
+    Examples:
+      | look-alike     |
+      | MX Keys Mini   |
+      | MX Keys S      |
+      | MX Keys for Mac Plus |
+      | MX Master 4    |
+
+  Scenario: Two keyboards at once
+    # Still passes if: the receiver lists the keyboards in another order
+    # test: tests/test_status.py::two_keyboards
+    Given the POP Icon Keys and the MX Keys for Mac are both connected
+    When the status is read
+    Then there is one section per keyboard sorted by slug, each with its own keys in profile order and its own tested flag
+
+  Scenario: A keyboard paired but switched off is not listed
+    # Still passes if: Solaar prints the offline device's last battery level
+    # test: tests/test_status.py::offline_not_listed
+    Given Solaar lists a paired POP Icon Keys that is offline and prints no live diversion line for it
+    When the status is read
+    Then no section appears for it
+
+  Scenario Outline: The battery is a number or null
+    # Still passes if: the battery line carries an extra status word
+    # test: tests/test_status.py::battery_values
+    Given Solaar prints <battery line> for the keyboard
+    When the status is read
+    Then the battery is <battery>
+
+    Examples:
+      | battery line            | battery |
+      | Battery: 80%            | 80      |
+      | Battery: 0%             | 0       |
+      | no battery line         | null    |
+
+  Scenario Outline: Solaar not usable, or nothing profiled connected
+    # Still passes if: the helper takes a little longer to run
+    # test: tests/test_status.py::solaar_states
+    Given <situation>
+    When the status helper runs
+    Then it exits 0 and prints valid JSON with installed <installed>, running <running> and <keyboards> keyboards
+
+    Examples:
+      | situation                                              | installed | running | keyboards |
+      | Solaar is not installed                                | false     | false   | no        |
+      | Solaar is installed and its background process is not running | true | false   | no        |
+      | Solaar runs with no profiled keyboard connected        | true      | true    | no        |
+      | Solaar runs and records only a mouse                   | true      | true    | no        |
+      | a one-off solaar show runs beside the background process | true   | true    | no        |
+      | solaar show takes longer than twenty seconds           | true      | true    | no        |
+
+  Scenario: Restore sends back only the dropped keys of one keyboard
+    # Still passes if: the confirmation text changes
+    # test: tests/test_status.py::restore_one_keyboard
+    Given the POP Icon Keys dropped Dictation and Emoji while the MX Keys for Mac is fine
+    When the restore helper runs for the POP Icon Keys
+    Then only those two keys are re-sent to that keyboard and nothing is sent for the other
+
+  Scenario: Both keyboards dropped keys and each is restored once
+    # Still passes if: the helper handles the two keyboards in the other order
+    # test: tests/test_status.py::restore_both_once
+    Given both keyboards dropped some keys
+    When the restore helper runs once for each
+    Then each dropped key is re-sent exactly once, to its own keyboard
+
+  Scenario: Restore addresses the keyboard by the exact name Solaar printed
+    # Still passes if: the profile lists the same name too
+    # test: tests/test_status.py::restore_exact_name
+    Given a keyboard matched by model id whose name differs from the profile's name
+    When the restore helper runs for its profile
+    Then the commands to Solaar use that device's exact printed name
+
+  Scenario: Restore changes no file
+    # Still passes if: Solaar rewrites its own file with identical content
+    # test: tests/test_status.py::restore_writes_nothing
+    Given a sandbox Solaar configuration with a recorded checksum
+    When the restore helper runs
+    Then the configuration file's checksum is unchanged
+
+  Scenario Outline: Restore skips an ambiguous selector
+    # Still passes if: the refusal is printed to standard error
+    # test: tests/test_status.py::restore_ambiguous
+    Given Solaar shows a device named <matched> and another device named <other>
+    When the restore helper runs for the profile that matches the first
+    Then <result>
+
+    Examples:
+      | matched       | other                | result                                                        |
+      | POP Icon Keys | POP Icon Keys Mini   | nothing is sent, it exits 1 and says the name also matches the other device |
+      | POP Icon Keys | MX Keys for Mac      | the dropped keys are sent and it exits 0                      |
+
+  Scenario Outline: Restore reports what went wrong
+    # Still passes if: the failed key is listed first
+    # test: tests/test_status.py::restore_failures
+    Given <situation>
+    When the restore helper runs
+    Then it exits <exit> and says <message>
+
+    Examples:
+      | situation                                  | exit | message                                           |
+      | Solaar is not installed                    | 1    | Solaar is not installed                           |
+      | Solaar is not running                      | 1    | Solaar is not running and how to start it         |
+      | one key's command fails                    | 1    | failed with that key's name                       |
+      | a command takes longer than twenty seconds | 1    | failed with that key's name                       |
+      | the profile name is unknown                | 1    | no profile of that name                           |
+      | the keyboard is not connected              | 0    | nothing to restore                                |
+
+  Scenario Outline: The Show Desktop helper toggles, or says Hyprland is missing
+    # Still passes if: the helper prints a confirmation
+    # test: tests/test_status.py::show_desktop_helper
+    Given hyprctl reports <windows> windows on the active workspace
+    When the helper runs
+    Then it dispatches <dispatch>
+
+    Examples:
+      | windows                  | dispatch                               |
+      | 3                        | a focus to the empty workspace         |
+      | 0                        | a focus back to the previous workspace |
+      | no hyprctl on the path   | nothing, and it exits 1 saying Hyprland is missing |
+```
+
+**Steps:**
+
+#### Step 2.1: Per-device split, identity, the state table and exact diversion parsing
+
+**Complexity**: complex
+**IMPLEMENT**: `lib/status.py`: split `solaar show all` into one block per device (header `N: <name>`), read each block's `Model ID:` and name, match profiles with `solaarcfg.match_device` (read-only import; no matcher is written here); parse both `Key/Button Diversion` lines into a name-to-state map by splitting the `{...}` list exactly. Resolve each profile key to the name Solaar printed: through the **injected** key table (`{name: cid}`, passed as a parameter; the cid's name in the table wins when it differs from the profile's name) and, with no table, by the profile's own name; the result carries `keyTable: used|unavailable`. Pure functions over text, no file or process access. State per key (the table below is the contract; "not listed" = the key is absent from that line):
+
+| live \ saved | diverted | regular | not listed | no saved line (older Solaar) |
+|---|---|---|---|---|
+| diverted | routed | notSetUp | notSetUp | routed (live only) |
+| regular | dropped | notSetUp | notSetUp | notSetUp (live only) |
+| not listed | dropped | notSetUp | absent | absent |
+
+A keyboard whose only problem is `dropped` keys **turns the bar icon warning** (as in v0.3: `needsRestore` is urgent until the keys are restored); `absent` never does. The rest of the old v0.3 rule stands: a key not saved as diverted needs setup, a saved key the keyboard dropped needs a restore.
+**TEST**: `tests/test_status.py`: the twelve-cell state table; older Solaar live-only; derived routed/dropped/not-setup variants for both profiles read back as the intended states (the round trip, using Slice 1's `fixtures_derive.py`); the Search / MultiPlatform Search and Print Screen / Screen Capture/Print Screen cases built **in the test** from the derived fixture text (no extra fixture file); the 212/266 regression; the fake key table (agrees, renames id 212, absent) with the table present and absent; the absent case; MX Keys Mini, MX Keys S, MX Keys for Mac Plus (model id edited, name edited) never match; model-id match when the name differs; exact name when the model id is all zero; a paired but offline keyboard is not listed; a third profile in a temporary profiles folder (data only) gets its own section.
+**REFACTOR**: One diversion-line parser used by status and restore; no regex that matches a key name as a substring.
+**Files**: `lib/status.py`, `tests/test_status.py`
+**Covers**: AC23, AC11, AC12, AC15
+**Commit**: `Parse Solaar diversion lines exactly and match keyboards by model id`
+
+#### Step 2.2: JSON status with a schema field
+
+**Complexity**: standard
+**IMPLEMENT**: `lib/status.py status` prints JSON, keys sorted so the output is stable: `schema` (1), `solaar` (`installed`, `running`), and `keyboards`, one per connected profiled keyboard, **sorted by slug**: `slug`, `name` (the profile's display name), `tested`, `battery` (an integer, or `null` when Solaar prints none; 0 is a real value), `keyTable` (`used`/`unavailable`), `keys` in **profile order** (`name` = Solaar's key name, `label`, `state`) and `bindings` in profile order (`chord`, `label`; informational, for keys Solaar cannot divert; POP: `SUPER + CTRL + Q`, `Lock screen`). A keyboard that is paired but off is not listed. The JSON carries **states only**; the words the widget shows for them are defined in the widget (Step 3.1). The pure builder `build_status(...)` is what Slice 2 uses to write `tests/qml/status-sample.json` (two keyboards, all routed) so Slice 3 reads one committed sample and never the per-variant fixtures that Step 5.4 deletes; `test_status.py` fails if the committed sample differs from the builder's output.
+**TEST**: JSON shape and schema value; keyboards sorted by slug, keys in profile order; battery `null`, `0` and a number; the bindings entry pinned to `SUPER + CTRL + Q`; two-keyboard run; offline keyboard omitted; the sample file equals the builder output.
+**REFACTOR**: The JSON builder is a pure function over parsed blocks.
+**Files**: `lib/status.py`, `tests/test_status.py`, `tests/qml/status-sample.json`
+**Covers**: AC6, AC12, AC15
+**Commit**: `Print the keyboard status as JSON, one section per keyboard`
+
+#### Step 2.3: New bash helpers
+
+**Complexity**: standard
+**IMPLEMENT**: `bin/logitech-keys-status` only locates Solaar state (`solaar_daemon_pids` from `lib/solaar-procs.sh`, read-only), runs `timeout 20 solaar show all`, and pipes it to `python3 -I lib/status.py status`; it always exits 0 with valid JSON (not installed, not running, no keyboard, a timed-out `solaar show` all give JSON, not an error). `bin/logitech-keys-show-desktop` is the v0.3 helper under its new name, and exits 1 with a one-line message when `hyprctl` is not on the path. The old `bin/pop-icon-keys-*` helpers stay until Step 5.4 retires them (the widget still calls them until Slice 3).
+**TEST**: Through a stub `solaar` and a stub `hyprctl` on `PATH` in `tests/test_status.py` (no real Solaar): the v0.3 status-helper cases (connected, not connected, Solaar missing, daemon running versus a one-off `solaar show`) produce the same facts as JSON; a `solaar show` stub that sleeps past 20 seconds yields the same JSON as "no keyboard" within about 21 seconds (one real 20-second case); the Show Desktop helper with a stub `hyprctl` reporting 0 and 3 windows (dispatch strings recorded) and with `hyprctl` missing.
+**REFACTOR**: One stub writer shared with Step 2.4.
+**Files**: `bin/logitech-keys-status`, `bin/logitech-keys-show-desktop`, `tests/test_status.py`
+**Covers**: AC2, AC12
+**Commit**: `Add the logitech-keys status and show-desktop helpers`
+
+#### Step 2.4: Restore per keyboard, ambiguity-safe, and the v0.3 test inventory
+
+**Complexity**: complex
+**IMPLEMENT**: `lib/status.py restore-plan <slug>` prints, as tab-separated lines for bash, the **matched device block's exact printed name** (`device\t<name>`), each key to restore (`key\t<name>`, state `dropped` only) and, when the selector is ambiguous, `skip\t<reason>`. The selector is ambiguous when that exact name is contained in **any other** device block's name (`solaar config` matches by substring): the matched name is tested against every other block via `solaarcfg.ambiguous`. `bin/logitech-keys-restore <slug> [KEY...]` restores those keys with `solaar config "<exact name>" divert-keys <key> Diverted` (20 s timeout each), keeps the v0.3 messages and exit codes (stdout `restored: <key>`; stderr `failed: <key>` or `error: <text>`; exit 1 for Solaar not installed, not running, a failed key, an unknown profile, an ambiguous selector), exits 0 with "nothing to restore" when the keyboard is not connected, and **never writes a config file**. Decision kept from AC7: an ambiguous selector is skipped, not worked around.
+**TEST**: Stub `solaar` records calls: POP dropped keys restored with the other keyboard untouched; both keyboards dropped each restored once; exact device name used when the model id matched but the name differs; ambiguous selector sends nothing (exit 1, message); the sandbox `config.yaml` checksum is unchanged by a restore; the failure table (not installed, not running, failing key, 20-second command via a slow stub, unknown profile, keyboard away). **Moved from `tests/test_setup.sh`** (the old sections are deleted there in this step; counts below): the status-helper section's v0.3 cases become the Step 2.3 and 2.1 tests; the "restore helper" section (2 checks) becomes the restore tests; lines 313-314 of the current file (`status counts only the daemon`, `status: show command alone is not 'running'`, in the "a 'solaar show' running alongside the daemon" section) move to `test_status.py` while the three setup checks of that section stay in `test_setup.sh`; the "one key list everywhere" section (the `Panel.qml` grep) is **not ported**: it is replaced by a check that every profile key name appears in the status output built from the profiles, and `test_status.py` references neither `Panel.qml` nor `lib/edit.py` keys. Record the v0.3 check count first (119 at baseline: `ALL OK (119 checks)`).
+**REFACTOR**: Remove the moved sections from `tests/test_setup.sh`; `test_setup.sh` is free of `Panel.qml` and status-helper coupling for Slices 3 and 5.
+**Files**: `lib/status.py`, `bin/logitech-keys-restore`, `tests/test_status.py`, `tests/test_setup.sh`
+**Covers**: AC7, AC11, AC10
+**Commit**: `Restore dropped keys per keyboard and skip ambiguous selectors`
+
+### Slice 3: The bar widget renders JSON only, in words
+
+**Depends-on:** 2
+**Files:** `Panel.qml`, `manifest.json`, `tests/qml_logic.py`, `tests/qml/shell.qml`, `tests/qml/KeyboardPanel.qml`, `tests/qml/decisions.json`
+
+User vocabulary (the widget, the consent plan and the README use these words; internal names stay in the JSON and the code):
+
+| Internal name | What the user reads |
+|---|---|
+| profile | keyboard (the word "profile" appears only in the all-absent message and in contributor docs) |
+| routed | Active |
+| dropped | Lost (Lost, restoring... while a restore runs) |
+| notSetUp | Not set up |
+| absent | Not found |
+| tested / untested | Tested (no badge) / Untested - may not match your keys |
+| setup | Re-apply setup (all keyboards) |
+| restore | Restore (lost keys only) |
+
+Copy table (strings defined once, in `Panel.qml`; the status JSON carries states only):
+
+| Situation | Text |
+|---|---|
+| Section line, nothing wrong | All keys active |
+| Section line, keys not set up | `<n>` keys not set up |
+| Section line, keys lost | `<n>` keys lost / Restoring `<n>` keys... |
+| Every key of a keyboard absent | None of this keyboard's keys were found. Its Logitech Keys profile may not match your model or Solaar version. Report it at https://github.com/poornan/omarchy-logitech-keys/issues. |
+| More than half absent, not all | Many of this keyboard's keys were not found. Its Logitech Keys profile may not match your model or Solaar version. Report it at https://github.com/poornan/omarchy-logitech-keys/issues. |
+| Icon tooltip, all fine | Logitech Keys: `<n>` keyboard(s), all keys active |
+| Icon tooltip, attention | One line per affected keyboard: `<name>: <section line>`; then "Open the menu to fix it." |
+| Checking | Checking... |
+| Battery | `<n>`% or Battery unknown |
+| Solaar not installed | Solaar is not installed. Re-apply setup to install it. |
+| Solaar not running | Solaar is not running. Start it with: solaar --window=hide (setup also adds it to autostart). |
+| Restore failed | Could not restore `<key>`. Check that Solaar is running, then choose Restore. (the key comes from the helper's `failed:` line; a `skipped:` or `error:` line is shown as printed) |
+| Status unreadable | Could not read the keyboard status. Choose Refresh, or Re-apply setup. |
+| Unknown status schema | This widget does not understand the status it received. Reload the shell to finish updating Logitech Keys. |
+| Setup requested | Waiting for setup to finish in the terminal... until the next status read |
+| Re-apply setup popup note | Opens a terminal, shows what setup will change for all keyboards, and asks first. |
+
+**Behavior:**
+
+```gherkin
+Feature: One bar icon shows every connected profiled keyboard, in words
+
+  Scenario: Two keyboards, one icon, one header line each
+    # Still passes if: the sections appear in another order
+    # test: tests/qml/shell.qml::two_keyboards_one_icon
+    Given the sample status lists the POP Icon Keys and the MX Keys for Mac, all keys active
+    Then the bar shows one icon
+    And the popup has one section per keyboard, ordered by slug
+    And each section starts with one header line holding the keyboard's name, its battery and its one-line status
+
+  Scenario Outline: Every key row says its state in words as well as with a glyph
+    # Still passes if: the glyph for a state changes
+    # test: tests/qml/shell.qml::key_row_text
+    Given a key whose state is <state> and a restore running is <restoring>
+    Then its row reads <text> and has a glyph
+    And its row has the dimmed flag set to <dimmed>
+
+    Examples:
+      | state    | restoring | text                  | dimmed |
+      | routed   | no        | Active                | no     |
+      | dropped  | no        | Lost                  | no     |
+      | dropped  | yes       | Lost, restoring...    | no     |
+      | notSetUp | no        | Not set up            | no     |
+      | absent   | no        | Not found             | yes    |
+
+  Scenario Outline: An untested keyboard is labelled in words
+    # Still passes if: the badge colour changes
+    # test: tests/qml/shell.qml::untested_label
+    Given a keyboard whose status says tested is <tested>
+    Then its header shows <badge>
+
+    Examples:
+      | tested | badge                                        |
+      | false  | the words "Untested - may not match your keys" |
+      | true   | no badge                                     |
+
+  Scenario Outline: The icon warns for any keyboard that needs attention
+    # Still passes if: the warning also shows a count
+    # test: tests/qml/decisions.json (rows "icon"), tests/qml/shell.qml::icon_warning, tests/qml_logic.py::pure_decisions
+    Given the first keyboard has <first> and the second keyboard has <second>
+    Then the icon is <icon> and the popup offers <offer>
+
+    Examples:
+      | first               | second                    | icon    | offer                           |
+      | all keys active     | all keys active           | normal  | nothing extra                   |
+      | all keys active     | two keys not set up       | warning | Re-apply setup (all keyboards)  |
+      | all keys active     | two keys lost, no setup needed | warning | Restore (lost keys only)   |
+      | all keys active     | one key not found         | normal  | nothing extra                   |
+      | one key lost        | two keys not set up       | warning | both buttons                    |
+
+  Scenario: An absent key is dimmed and is not a warning
+    # Still passes if: the opacity value used for dimming changes
+    # test: tests/qml/shell.qml::absent_dimmed
+    Given a key whose state is absent and every other key of the keyboard active
+    Then the key's row exists and carries the dimmed flag
+    And the icon does not ask for setup
+
+  Scenario: A keyboard with every key absent says so in words
+    # Still passes if: the other keyboard is fine or not
+    # test: tests/qml/shell.qml::all_absent_message
+    Given a keyboard whose keys are all not found
+    Then its section shows the all-absent message with the issue address in plain text rather than a red warning
+    And the icon does not ask for setup
+
+  Scenario: A keyboard with more than half its keys absent says so in words
+    # Still passes if: the absent keys are not the first ones listed
+    # test: tests/qml/shell.qml::mostly_absent_message
+    Given a keyboard with three of its five keys not found and two active
+    Then its section shows the many-keys-not-found message
+    And the two active keys are still listed as Active
+
+  Scenario: Dropped keys are restored for that keyboard only
+    # Still passes if: the restore is attempted a little later
+    # test: tests/qml/shell.qml::restore_one_keyboard
+    Given the MX Keys for Mac has lost keys and the POP Icon Keys has none and auto-restore is on
+    Then one restore runs, for the MX Keys for Mac, with its lost keys
+    And none is run for the POP Icon Keys
+
+  Scenario: Two keyboards with lost keys are restored once each
+    # Still passes if: the two restores run in the other order
+    # test: tests/qml/shell.qml::restore_two_keyboards
+    Given both keyboards have lost keys and auto-restore is on
+    Then one restore runs for each keyboard with its own lost keys and no restore runs twice for one keyboard
+
+  Scenario Outline: Automatic restore follows the setting and the restore in progress
+    # Still passes if: the restore button label changes
+    # test: tests/qml/decisions.json (rows "restore"), tests/qml/shell.qml::auto_restore_rules
+    Given a keyboard has lost keys, auto-restore is <setting> and a restore is <progress>
+    Then an automatic restore <starts> and the popup offers the Restore button <offered>
+
+    Examples:
+      | setting | progress    | starts         | offered |
+      | on      | not running | starts         | yes     |
+      | off     | not running | does not start | yes     |
+      | on      | running     | does not start | yes, showing Restoring... |
+
+  Scenario Outline: The icon is shown or hidden by what Solaar and the keyboards are doing
+    # Still passes if: the tooltip wording changes
+    # test: tests/qml/decisions.json (rows "visibility"), tests/qml/shell.qml::visibility_table, tests/qml_logic.py::pure_decisions
+    Given Solaar is <install>, its background process is <running>, <keyboards> keyboards are connected and hide-when-disconnected is <hide>
+    Then the icon is <icon> and setup is <setup>
+
+    Examples:
+      | install       | running     | keyboards | hide | icon    | setup     |
+      | not installed | not running | no        | on   | shown   | requested |
+      | installed     | not running | no        | on   | hidden  | not requested |
+      | installed     | not running | one       | on   | shown   | requested |
+      | installed     | running     | no        | on   | hidden  | not requested |
+      | installed     | running     | no        | off  | shown   | not requested |
+      | installed     | running     | one       | on   | shown   | not requested |
+
+  Scenario Outline: Unreadable or unfamiliar status is reported in words
+    # Still passes if: the widget reads the status a little later
+    # test: tests/qml/shell.qml::status_errors
+    Given the status helper prints <output>
+    Then the popup says <message>
+
+    Examples:
+      | output                              | message                                                  |
+      | nothing yet                         | Checking...                                              |
+      | text that is not JSON               | Could not read the keyboard status                       |
+      | JSON with schema 2                  | This widget does not understand the status ... Reload the shell |
+      | JSON with no keyboards, Solaar not running | Solaar is not running, with how to start it       |
+
+  Scenario Outline: A failed restore names the key or says what happened
+    # Still passes if: the failed key is listed first
+    # test: tests/qml/shell.qml::restore_failure_copy
+    Given the restore helper prints <line> and exits 1
+    Then the tooltip and popup say <message>
+
+    Examples:
+      | line                                     | message                                  |
+      | failed: Emoji                            | Could not restore Emoji                  |
+      | error: Solaar is not running; start it with: solaar --window=hide | the helper's line as printed |
+      | skipped: the name also matches another device | the helper's line as printed          |
+
+  Scenario: Re-apply setup opens a terminal and waits for the next read
+    # Still passes if: the terminal program differs
+    # test: tests/qml/shell.qml::reapply_setup
+    Given any keyboard state
+    When Re-apply setup (all keyboards) is chosen
+    Then a terminal runs setup, which shows its plan and asks y/N
+    And the popup says it covers all keyboards and shows "Waiting for setup to finish in the terminal..." until the next status read
+
+  Scenario: The popup can be used from the keyboard
+    # Still passes if: the shortcut letters change
+    # test: tests/qml/shell.qml::keyboard_use
+    Given the popup is open
+    Then Escape closes it and a focused button is activated by Enter or Space
+    And the single-key shortcuts for refresh, setup and restore are named in the buttons' tooltips
+    And every state is also stated as text, so no state depends on colour or dimming
+
+  Scenario: The widget knows no keyboard
+    # Still passes if: the popup spacing changes
+    # test: tests/test_repo.py::panel_has_no_names, tests/qml_logic.py::no_names
+    Given the widget source and the shipped profiles
+    Then the widget source contains none of their keyboard names, key names or key labels
+
+  Scenario: The plugin identity is Logitech Keys
+    # Still passes if: the manifest description is reworded
+    # test: tests/qml_logic.py::identity, omarchy-plugin-validate .
+    Given the manifest and the widget
+    Then the id is io.github.poornan.logitech-keys, the name is Logitech Keys and the version is 0.4.0
+    And the IPC target and QML module name are logitech-keys
+    And the manifest validates
+```
+
+**Steps:**
+
+#### Step 3.1: Parse the status JSON and render sections in words
+
+**Complexity**: complex
+**IMPLEMENT**: Rewrite `Panel.qml` to run `bin/logitech-keys-status`, parse the JSON (`schema` checked; an unknown schema shows the schema-mismatch copy, unreadable JSON the unreadable copy, nothing yet "Checking..."), keep one bar icon, and render one popup section per keyboard sorted by slug: a header line (name, `Untested - may not match your keys` badge when untested, battery or `Battery unknown`, the one-line status from the copy table), then one row per key with a glyph **and** its text state (Active / Lost / Not set up / Not found; Lost reads `Lost, restoring...` while a restore runs), the dimmed flag set only for Not found, and bindings as an informational row. The strings live in one place in `Panel.qml` (the copy table); no collapsing of sections (decided: two keyboards fit). Where Qt supports it each key row and button carries an `Accessible.name` with the text state. Delete `keyMap`, `keyRouted(name)` and every hard-coded title and name. Keyboard use: Escape closes (the existing `PanelKeyCatcher`), Enter and Space activate a focused button, the existing `r`, `s`, `k` shortcuts stay and are named in the button tooltips. Whether Tab reaches the buttons depends on Omarchy's `PanelKeyCatcher`, which claims Tab to switch panels: **verify at build time**; if it is claimed, the shortcut letters are the keyboard path and the README says so (Risk).
+**TEST**: `tests/qml/shell.qml` drives `tests/qml/status-sample.json` (Slice 2's output) and states derived from it by editing JSON states in the harness, through the real `Panel.qml`: two sections, one icon, header lines, per-key text states and glyphs, the dimmed flag, battery and `Battery unknown`, empty, malformed and schema-2 JSON; `Accessible.name` strings read back where the harness can. `tests/qml_logic.py` gains a text check that the widget source holds no key or keyboard names and labels (derived from the profiles, not hand-listed).
+**REFACTOR**: Replace the per-key properties (`divertedKeys`, `savedKeys`, `missingKeys`, `inactiveKeys`) with one `keyboards` model.
+**Files**: `Panel.qml`, `tests/qml_logic.py`, `tests/qml/shell.qml`, `tests/qml/KeyboardPanel.qml`
+**Covers**: AC6, AC12, AC25
+**Commit**: `Render keyboards from the status JSON in the bar widget`
+
+#### Step 3.2: Untested, absent, warnings and per-keyboard restore
+
+**Complexity**: standard
+**IMPLEMENT**: Untested badge; absent keys dimmed and excluded from `needsSetup`; the all-absent and more-than-half-absent section messages (plain text, not the urgent colour); `needsSetup` and `needsRestore` over all keyboards (a keyboard with only lost keys turns the icon warning, as in v0.3); the icon tooltip lists the affected keyboards; auto-restore runs `bin/logitech-keys-restore <slug> <lost keys...>` once per keyboard that has lost keys, guarded by the existing 8 s recheck and the `autoRestore` setting; the restore process's stdout and stderr are read so a `failed:`, `skipped:` or `error:` line reaches the tooltip and popup; `Re-apply setup (all keyboards)` opens a terminal running `setup` (plan, then y/N) and shows the pending line until the next status read; the Restore button reads `Restore (lost keys only)`. The decision rows (visibility, `needsSetup`, `needsRestore`, absent exclusion, auto-restore rules) live in `tests/qml/decisions.json`; the QML harness runs each row against the real `Panel.qml` and `tests/qml_logic.py --pure` (stdlib only, no quickshell, run by CI) runs the same rows against a Python mirror of the decision functions, so a drift fails on the dev machine and the table cannot silently diverge.
+**TEST**: Canned JSON for each Gherkin scenario (absent, all absent, mostly absent, untested, one keyboard fine and one not, lost keys only on the second, **both keyboards with lost keys restored once each**, auto-restore off, restoring in progress, hide when disconnected, Solaar missing or not running, restore failure copy for a key, an `error:` line and a `skipped:` line, Re-apply pending state); the decision table through the real widget and through the stdlib mirror.
+**REFACTOR**: Fold the v0.3 widget logic checks (visibility, low battery, setup retry counter) into the new harness; delete checks that tested the removed key list.
+**Files**: `Panel.qml`, `tests/qml/shell.qml`, `tests/qml/KeyboardPanel.qml`, `tests/qml/decisions.json`, `tests/qml_logic.py`
+**Covers**: AC6, AC7, AC15, AC25
+**Commit**: `Show untested and absent keys and restore per keyboard`
+
+#### Step 3.3: Plugin identity
+
+**Complexity**: trivial
+**IMPLEMENT**: `manifest.json`: id `io.github.poornan.logitech-keys`, name and `barWidget.displayName` "Logitech Keys", description and widget description for several keyboards, version `0.4.0`; `Panel.qml`: `moduleName` and `ipcTarget` `logitech-keys`, tooltip and title text from the copy table, not per keyboard.
+**TEST**: `omarchy-plugin-validate .`; the harness asserts the IPC target and module name; `qmllint Panel.qml`.
+**REFACTOR**: Remove the last `pop-icon-keys` strings from the widget.
+**Files**: `Panel.qml`, `manifest.json`, `tests/qml_logic.py`
+**Covers**: AC1, AC22
+**Commit**: `Rename the plugin and widget to Logitech Keys (0.4.0)`
+
+### Slice 4: Rule generation, reconciliation, the applied record and the plan, as modules
+
+**Depends-on:** 1
+**Files:** `lib/edit.py`, `lib/fileedit.py`, `lib/diversion.py`, `lib/rules.py`, `lib/applied.py`, `lib/legacy.py`, `lib/plan.py`, `tests/test_edit.py`, `tests/test_rules.py`, `tests/test_state.py`, `tests/test_plan.py`
+
+This slice is library code. `lib/edit.py` keeps exactly its v0.3 verbs and arguments (Plan rule 3); the new verbs arrive in Step 5.0. Module responsibilities after Step 4.0: `fileedit.py` reads, backs up, atomically writes and finds marked blocks (the mark is a parameter, so old and new marks are handled together); `diversion.py` edits `config.yaml` entries (using the spans from `solaarcfg.py`, written in Slice 1); `rules.py` generates and classifies rules and Lua and owns all escaping; `applied.py` is the applied record; `legacy.py` is the one frozen v0.3 table; `plan.py` builds the consent plan; `edit.py` is the command line only.
+
+**Behavior:**
+
+```gherkin
+Feature: Solaar rules are generated from profiles and recognised in every shape
+
+  Scenario: The v0.3 command line behaves as before the split
+    # Still passes if: the usage message wording changes
+    # test: tests/test_edit.py::v03_golden
+    Given outputs recorded from the v0.3 edit commands before the split
+    When the same commands run after the split
+    Then every output and exit code is identical apart from the corrected key-to-id pairing
+
+  Scenario: Rules come from the profile and the action table
+    # Still passes if: the comment text above a rule changes
+    # test: tests/test_rules.py::rules_from_profile
+    Given the POP Icon Keys profile
+    When its rules are generated
+    Then each mapped key has one rule that runs the action's command
+    And every rule is restricted to that keyboard by name and carries no model condition
+
+  Scenario: Generated rules load in Solaar's own rule loader
+    # Still passes if: the generated rules carry extra comments
+    # test: tests/test_rules.py::solaar_loads_rules
+    Given the rules generated for both shipped profiles
+    When Solaar's own rule loader reads them
+    Then it loads one rule per key with the same key name, device names and arguments
+    And a missing loader counts as a failure on the development machine
+
+  Scenario Outline: A rule fires only for its own keyboard
+    # Still passes if: the generated rules carry extra comments
+    # test: tests/test_rules.py::rules_fire_only_for_own_keyboard
+    Given a synthetic profile in a temporary folder that also maps a key called Screen Capture
+    And the rules generated for the POP Icon Keys, the synthetic keyboard and the MX Keys for Mac
+    When Solaar's own evaluator checks <rule of> against a fake <device>
+    Then the rule fires: <fires>
+
+    Examples:
+      | rule of                    | device             | fires |
+      | the POP Icon Keys rule     | POP Icon Keys      | yes   |
+      | the POP Icon Keys rule     | synthetic keyboard | no    |
+      | the synthetic keyboard rule| synthetic keyboard | yes   |
+      | the synthetic keyboard rule| POP Icon Keys      | no    |
+      | the MX Keys for Mac rule   | POP Icon Keys      | no    |
+      | the POP Icon Keys rule     | a device whose name only contains POP Icon Keys | no |
+
+  Scenario Outline: Profile and action text cannot reach YAML, Lua or the shell unescaped
+    # Still passes if: the rule keeps a trailing newline
+    # test: tests/test_rules.py::escaping_sinks
+    Given <text> in <place>
+    When rules and Lua are generated
+    Then <result>
+
+    Examples:
+      | text                                         | place              | result                                                             |
+      | a double quote                               | a profile label    | the reader refuses the profile before anything is generated       |
+      | two closing square brackets                  | a Hyprland chord   | the reader refuses the profile before anything is generated       |
+      | a quote, colon, comma, brackets and a hash   | an action argument | the rule parses back to the same arguments                        |
+      | a quote and a backslash                      | an action argument | the Lua line is a string that evaluates back to the same command  |
+      | spaces and a single quote                    | an action argument | the shell form splits back to the same argument list              |
+
+  Scenario: The action table drives the rules
+    # Still passes if: the generated rule gains a comment line
+    # test: tests/test_rules.py::actions_table_drives_rules
+    Given a temporary action table where one action's arguments changed
+    When the rules and Lua are generated for a profile using that action
+    Then the generated rule and Lua line carry the changed arguments
+
+  Scenario: A chord bound by two keyboards is written once
+    # Still passes if: the Lua comment text changes
+    # test: tests/test_rules.py::lua_dedupes_chords
+    Given two profiles that bind the same chord to the same action
+    When the Lua is generated
+    Then the chord is bound once
+
+  Scenario: A chord the user already bound is left alone
+    # Still passes if: the user's binding uses a different label
+    # test: tests/test_rules.py::lua_existing_bind
+    Given a bindings file where the user already bound SUPER + CTRL + Q outside the plugin's block
+    When the plan is computed
+    Then the plan says the chord is already bound and generates no binding for it
+
+  Scenario Outline: Existing rules are classified
+    # Still passes if: a rule has extra whitespace
+    # test: tests/test_rules.py::classify_shapes
+    Given a rule on a profiled key that is <rule>
+    When the rules are classified
+    Then the kind is <kind> and overlap is <overlaps>
+
+    Examples:
+      | rule                                                            | kind   | overlaps |
+      | the new shape with the profile's Device condition               | plugin | no       |
+      | a v0.3 two-line rule                                            | legacy | no       |
+      | a v0.3 rule rewritten by Solaar's editor without markers        | legacy | no       |
+      | a user's rule on the same key with no Device condition          | other  | yes      |
+      | a user's rule with the POP Icon Keys Device and a command not in the action table | other | yes |
+      | a user's rule with a Device condition for an unprofiled keyboard| other  | no       |
+      | a rule on the key with a different argument list and three lines| other  | yes      |
+      | a rule in CRLF line endings that is otherwise the new shape     | plugin | no       |
+
+  Scenario Outline: Legacy command forms are recognised and near misses are not
+    # Still passes if: the old helper path points to a different home folder
+    # test: tests/test_rules.py::legacy_forms
+    Given a rule whose command is <command>
+    When the rules are classified
+    Then the kind is <kind>
+
+    Examples:
+      | command                                                                | kind   |
+      | the Show Desktop helper path ending in pop-icon-keys-show-desktop under /home/alice | legacy |
+      | the same helper path under /home/bob/.local/bin                        | legacy |
+      | omarchy-shell omarchy.dock apps (the v0.3 Search list)                 | legacy |
+      | omarchy-dictation toggle (the v0.3 Dictation list)                     | legacy |
+      | omarchy-shell shell toggle omarchy.emojis (the v0.3 Emoji list)        | legacy |
+      | omarchy-capture-screenshot region (the v0.3 Screen Capture list)       | legacy |
+      | the helper path with a different file name                             | other  |
+      | omarchy-capture-screenshot window (one argument changed)               | other  |
+
+  Scenario: Only the MX Keys for Mac known to Solaar
+    # Still passes if: the diversion of other saved keys differs
+    # test: tests/test_state.py::mx_only_edits
+    Given Solaar's saved settings hold only an MX Keys for Mac
+    When setup's edits are computed
+    Then 225, 191, 111 and 10 are diverted and 224 and 13 are not
+    And the rules run the app launcher, region screenshot, lock and calculator actions
+
+  Scenario: Both Bluetooth and Bolt entries are diverted
+    # Still passes if: the entries are in block style instead of flow style
+    # test: tests/test_state.py::two_entries_diverted
+    Given Solaar saved two entries for one keyboard
+    When the diversion is set
+    Then both entries get the profile's control ids
+
+  Scenario: A control id dropped from a profile is reset
+    # Still passes if: the applied record lists the profiles in another order
+    # test: tests/test_state.py::dropped_id_reset
+    Given the applied record lists control id 212 for POP Icon Keys and the profile no longer maps it
+    When setup's edits are computed
+    Then 212 is reset to regular, its rule is removed, and other keys and user rules are unchanged
+
+  Scenario: A dropped id whose keyboard has no saved entry changes nothing
+    # Still passes if: the record lists extra profiles
+    # test: tests/test_state.py::dropped_id_no_entry
+    Given the applied record lists id 212 for a keyboard that Solaar no longer has an entry for
+    When setup's edits are computed
+    Then the file is unchanged, no error is raised and the keyboard is dropped from the new record
+
+  Scenario: Uninstall resets from the applied record alone
+    # Still passes if: the record holds a newer plugin version
+    # test: tests/test_state.py::uninstall_from_record
+    Given the applied record lists ids and the matched device names for two profiles and the profile files are gone
+    When uninstall's edits are computed
+    Then exactly those ids are reset on the entries with those names or model ids and the record is deleted
+
+  Scenario: The record is written before the diversion
+    # Still passes if: the record lists the profiles in another order
+    # test: tests/test_state.py::record_before_divert
+    Given a record listing id 212 and a profile that no longer maps it
+    When the record is written for the divert and the process stops before the final write
+    Then the record on disk lists the old and the new ids together
+    And running uninstall's edits resets all of them, a never-diverted id included, and deletes the record
+
+  Scenario Outline: The applied record is read safely
+    # Still passes if: the record file has trailing blank lines
+    # test: tests/test_state.py::applied_record_robustness
+    Given <situation>
+    When the record is read or written
+    Then <result>
+
+    Examples:
+      | situation                                         | result                                                            |
+      | no record file                                    | it reads as empty                                                 |
+      | a record that is not valid JSON                   | it is refused with code 4 and a message naming the file            |
+      | a record whose schema is newer than the plugin's  | it is refused with code 4 and a message naming the file            |
+      | XDG_STATE_HOME unset                              | the record lives under the home folder's .local/state              |
+      | XDG_STATE_HOME set to a relative path             | it is ignored and the default is used                              |
+      | a dry run                                         | no record file or folder is created or changed                     |
+      | a write that is interrupted halfway               | the old record is intact and no temporary file is left             |
+      | a successful write                                | no backup file is created for the record                           |
+
+  Scenario: A new keyboard needs data only
+    # Still passes if: the third profile's label wording changes
+    # test: tests/test_plan.py::new_keyboard_data_only
+    Given a third profile and its fixture added to a temporary profiles folder
+    When the saved entries are matched, the rules are generated and the plan is computed
+    Then the saved entry is found for it, its rules and diversion appear, and the plan lists it as untested, with no code change
+
+  Scenario Outline: The consent plan says what will change and what will not
+    # Still passes if: the plan lists the files in another order
+    # test: tests/test_plan.py::plan_contents
+    Given <situation>
+    When the plan is computed
+    Then the plan <content>
+
+    Examples:
+      | situation                                                    | content                                                                                           |
+      | only the POP Icon Keys is known to Solaar                    | has one keyboard block marked tested with its keys and actions and no block for the MX Keys for Mac |
+      | both keyboards are known                                     | has a block for each and marks the MX Keys for Mac untested in words                              |
+      | Solaar knows no profiled keyboard                            | lists every supported keyboard as tested or untested and says setup applies whichever Solaar then records |
+      | the old plugin folder exists                                 | warns that its Re-apply would write old blocks and that two widgets would show                    |
+      | unmarked v0.3 rules are present                              | lists each removed rule by key and says backups are made                                          |
+      | a user's rule on a profiled key can fire on a handled keyboard | lists it under "your own rules left unchanged" with a note that it will still fire              |
+      | an uninstall with no applied record                          | says the v0.3 key set will be reset and lists the exact key names                                 |
+      | the file changes are computed                                | lists the Solaar stop and restart notice and every file with its change                           |
+```
+
+**Steps:**
+
+#### Step 4.0: Split `lib/edit.py` into modules without changing behavior
+
+**Complexity**: complex
+**IMPLEMENT**: First write `tests/test_edit.py` as a golden test of every v0.3 verb (`block`, `has-block`, `divert`, `keys`, `rules-body`, `rules-scan`, `rules-drop-copies`) on temporary files, run against the current `lib/edit.py`. Then split: `lib/fileedit.py` (`read`, `backup`, `commit`, atomic `write`, marker search and `replace_block`, the mark passed as a **parameter**, so the v0.3 mark and the new mark are handled by the same code); `lib/diversion.py` (`parse_flow`, `parse_id`, `set_diversion`, taking entry spans from `lib/solaarcfg.py`); `lib/rules.py` (rule text, document scan and `classify`, fed a table); `lib/legacy.py` (the one frozen v0.3 table: the marker `pop-icon-keys`, the helper name and path, the five argument lists, the v0.3 POP key set as names with their ids, **with the 212/266 pairing corrected**, the only intended output change, recorded in the commit message); `lib/edit.py` keeps only argument handling and exit codes. `profiles.py` is untouched. No new verb is added.
+**TEST**: The golden test passes before and after the split except the `keys` pairing, whose expected output is updated in the same commit; every existing `tests/test_setup.sh` section still passes (setup and uninstall still call the v0.3 verbs); the legacy table's names and ids equal the POP profile's pairs (a guard until Step 5.4 deletes the legacy key set).
+**REFACTOR**: No duplicated path or read code between the new modules; `edit.py` under 120 lines.
+**Files**: `lib/edit.py`, `lib/fileedit.py`, `lib/diversion.py`, `lib/rules.py`, `lib/legacy.py`, `tests/test_edit.py`
+**Covers**: AC10, AC23
+**Commit**: `Split edit.py into file, diversion, rules and legacy modules`
+
+#### Step 4.1: Generate rules and Lua with an always-present Device condition
+
+**Complexity**: complex
+**IMPLEMENT**: In `lib/rules.py` (additive; the v0.3 verbs still work): `generate_rules(profiles, actions, helper_dir)` returns the marked block's text for the applied profiles, one rule per key `- Key: [<name>, pressed]`, a `Device` condition (an `Or` over the profile's names, a plain `Device` when there is one name), `- Execute: [...]` from `profiles.resolve_action`; no `Model` condition; header comments come from the profiles' display names. `generate_lua(profiles, actions, helper_dir, bound_chords)` returns the Hyprland binding lines from `bindings`, deduplicated by chord, skipping chords the user already bound (`lua_bound_chords(lua_text)` finds `o.bind("<chord>"` outside the block), command resolved from the action table. The generator takes **only data arguments** (no environment, no globals), so tests can point it at a temporary profiles folder and a temporary action table. **All escaping is here**, one function per sink: `yaml_flow(argv)` (JSON strings, valid YAML), `lua_string(text)`, `shell_join(argv)` (the command string of a Lua binding); nothing else in the plugin writes YAML, Lua or shell text from profile or action data. Marker text is the parameter `logitech-keys`.
+**TEST**: `tests/test_rules.py`: rule shape per profile (POP, MX), always-`Device`, no `Model`; the **Solaar-loader check**: the generated rules are loaded by Solaar's own `logitech_receiver.diversion` rule code (when importable; a missing Solaar is a **failure** under `LK_REQUIRE_SOLAAR=1`, which the dev gate sets, and the result, including that it ran with zero skips, is recorded in the commit message); a synthetic profile in a temporary folder that shares the key name `Screen Capture` with the POP profile, and Solaar's own `Device` evaluator run on each generated rule against fake POP, synthetic and MX device objects (zero skips on the dev machine); one test per escaping sink (YAML round trip through PyYAML, Lua string through the `lua` interpreter when installed and through an unescape check otherwise, shell form through `shlex.split`) fed an argument with a quote, backslash, colon, comma, brackets, hash and spaces; a temporary action table with changed argv changes the rule and the Lua; the Lock chord line; the dedupe and already-bound cases.
+**REFACTOR**: One YAML scalar quoting helper shared with the block writer.
+**Files**: `lib/rules.py`, `tests/test_rules.py`
+**Covers**: AC3, AC4, AC13, AC14
+**Commit**: `Generate Solaar rules and Lua bindings from profiles and actions`
+
+#### Step 4.2: classify() for new, v0.3 and legacy shapes
+
+**Complexity**: complex
+**IMPLEMENT**: `rules.classify(doc, profiles, actions, helper_dir)` returns `(kind, key, overlaps)`: `plugin` for the new shape, `legacy` for v0.3 two-line rules (including those rewritten by Solaar's editor without markers, a command ending in `pop-icon-keys-show-desktop` at **any** path, and the five v0.3 argument lists from `lib/legacy.py`), and `other` for anything else on a profiled key name. `overlaps` is true when an `other` rule **can fire on a keyboard the plugin handles** (no `Device` condition, or a `Device` naming one of a profile's names) and false when its `Device` names an unprofiled keyboard; the plan warns only when `overlaps` is true. `scan` reports kind, key and overlap per rule; `drop_copies` removes plugin and legacy copies outside the block.
+**TEST**: Each shape in the Gherkin rows: new shape; v0.3 two-line; Solaar-rewritten; a user rule with no Device condition (overlaps); a user rule with the POP Device and a command not in the action table (other, left in place, overlaps); a user rule with a Device for an unprofiled keyboard (other, no overlap); a different argument list (other); a three-line rule (other); CRLF input; and the legacy outline: the five v0.3 argument lists, the show-desktop path under two different home directories, a different file name (other), one argument changed (other).
+**REFACTOR**: One recogniser for "is this document one of ours" shared by scan and drop.
+**Files**: `lib/rules.py`, `lib/legacy.py`, `tests/test_rules.py`
+**Covers**: AC14, AC17
+**Commit**: `Recognise new, v0.3 and legacy rule shapes`
+
+#### Step 4.3: Per-profile diversion
+
+**Complexity**: complex
+**IMPLEMENT**: `diversion.divert_profile(text, profile, ids)` sets the profile's control ids on **every** entry `solaarcfg.known` returns for it (flow or block style kept; "no matching entry" is reported as code 3 by the caller, as in v0.3); `diversion.reset(text, entries, ids)` sets ids back to regular on the entries named by a record. Both are pure functions over text; `fileedit.commit` writes them. Nothing here matches devices itself.
+**TEST**: `tests/test_state.py`: MX-only config; two entries (Bluetooth and Bolt) both diverted; an entry in block style; an id that is not a number (refused as in v0.3); reset by recorded names and model ids; unchanged text is not rewritten (no backup).
+**REFACTOR**: Remove duplicated flow/block parsing paths.
+**Files**: `lib/diversion.py`, `tests/test_state.py`
+**Covers**: AC3, AC4, AC5
+**Commit**: `Divert keys per profile on every matching saved entry`
+
+#### Step 4.4: The applied record
+
+**Complexity**: complex
+**IMPLEMENT**: `lib/applied.py`: `state_path(environ, home)` (`$XDG_STATE_HOME` when absolute, else `~/.local/state`, then `logitech-keys/applied.json`); `plugin_version(root)` reads `manifest.json`, the **one** place the version is read; `read(path)` (missing is empty, damaged or newer `schema` raises `Refuse(4, ...)` naming the file); `write(path, record, dry_run)` is a small atomic writer (temporary file in the same folder, fsync, `os.replace`, folder mode 0700) that makes **no `.bak`** (the record is state, not user content) and does nothing in a dry run; `reconcile(record, profiles)` returns the ids to reset and rule keys to drop; `union(old, new)`. Record shape: `{"schema": 1, "version": "<plugin version>", "profiles": [{"slug", "ids", "names", "modelIds"}]}` where `names` and `modelIds` are the **matched `config.yaml` entry** names and model ids, so `uninstall` can reset the right entries without the profile file; a slug missing from `profiles/` is kept as recorded and still reset. Documented write order, used by setup in Step 5.1: write the **union** of old and new ids **before** the diversion (resetting a never-diverted id is harmless), rewrite with the final ids **after** the work is done.
+**TEST**: `tests/test_state.py`: the record robustness table (absent, damaged, newer schema, `XDG_STATE_HOME` unset and relative, dry run, interrupted write leaves the old record and no temporary file, no `.bak`); the union-before-divert order with a simulated stop before the final write followed by uninstall's edits; a dropped id whose keyboard has no entry; a slug missing from the profiles; the version equals `manifest.json`'s.
+**REFACTOR**: None needed beyond sharing path helpers with `fileedit.py`.
+**Files**: `lib/applied.py`, `tests/test_state.py`
+**Covers**: AC16, AC24
+**Commit**: `Record what setup applied before and after the diversion`
+
+#### Step 4.5: The consent plan as a pure function
+
+**Complexity**: complex
+**IMPLEMENT**: `lib/plan.py`: `build_plan(mode, profiles, actions, inputs)` returns the structured plan (files and their changes, the marked blocks, ids to divert and to reset per entry, legacy rules to remove, user rules left unchanged with their `overlaps` note, old-plugin warning, the Solaar stop and restart notice, the supported keyboards when none is known, the closing hint built from the profiles' key labels) and `render_text(plan)` prints it in the consent layout: heading; one block per keyboard (name, tested or **Untested - may not match your keys** in words, its keys and actions); file changes; the Solaar notice; migration items (old blocks, each legacy unmarked rule listed by key, old helper); "Your own rules left unchanged: ..." with the note that a listed rule will still fire; the exit-2 text (names the supported keyboards and the next steps: pair or connect, open Solaar once, run setup again). Inputs are plain data (file texts, applied record, flags), so the plan is tested without files. Keyboard knowledge such as the `SUPER + CTRL + Q` already-bound check, the Lua comment text and the "try these keys" closing line come from the profiles through this module, never from bash.
+**TEST**: `tests/test_plan.py`: one case per row of the plan outline (POP only; both; none known; old plugin folder; legacy rules; user rule overlap; uninstall without record listing the exact v0.3 key names; file changes and the Solaar notice); the third-profile data-only case (saved entry found, rules and diversion appear, plan lists it untested); the render layout order is pinned.
+**REFACTOR**: One way to describe a keyboard block, shared by setup and uninstall plans.
+**Files**: `lib/plan.py`, `tests/test_plan.py`
+**Covers**: AC5, AC21, AC26
+**Commit**: `Compute the consent plan as data`
+
+### Slice 5: Setup and uninstall apply profiles, record state and migrate v0.3
+
+**Depends-on:** 2, 4
+**Files:** `setup`, `uninstall`, `lib.sh`, `lib/solaar-procs.sh`, `lib/edit.py`, `lib/rules.py`, `tests/test_setup.sh`, `tests/test_edit.py`, `tests/test_fixture_equality.py`, `bin/pop-icon-keys-status`, `bin/pop-icon-keys-restore`, `bin/pop-icon-keys-show-desktop`, `tests/fixtures/pop-icon-keys/routed.txt`, `tests/fixtures/pop-icon-keys/dropped.txt`, `tests/fixtures/pop-icon-keys/not-setup.txt`, `tests/fixtures/mx-keys-mac/routed.txt`, `tests/fixtures/mx-keys-mac/dropped.txt`, `tests/fixtures/mx-keys-mac/not-setup.txt`
+
+Setup is **two-phase**. Phase 1 resolves the profile set: stop Solaar, read which profiled keyboards Solaar has saved; if it knows none, start Solaar once so it records the connected keyboards, wait, stop it and read again. Phase 2 applies exactly that set, idempotently, in the v0.3 order of safety: write the record (union of old and new ids), the rules block, the helper, the Hyprland Lua; **then** divert (rules before diversion, so a diverted key never goes nowhere); restart Solaar; finalise the record. Bash prints the plan text and runs the steps; the plan content and every keyboard fact come from `edit.py plan` (Step 4.5), never from bash. The sandbox runs setup from a **copy of the plugin tree** in the sandbox (so a synthetic profile can sit in that copy's `profiles/`); the profile folder is never an environment variable.
+
+**Behavior:**
+
+```gherkin
+Feature: Setup and uninstall apply the profiles of the keyboards Solaar knows
+
+  Scenario: Only the POP Icon Keys is known
+    # Still passes if: the plan lists the files in another order
+    # test: tests/test_setup.sh::"POP only: setup twice, then uninstall"
+    Given Solaar has a saved entry only for the POP Icon Keys
+    When I run setup and accept
+    Then the plan names the POP Icon Keys as tested and no MX Keys for Mac rule or diversion is written
+    And the five keys are diverted, the rules and the Lock binding are in marked blocks, and the helper is installed
+    And the applied record lists the POP Icon Keys with its ids and matched entry names
+    And running setup a second time changes nothing and creates no backup
+
+  Scenario: Rules are in place before keys are diverted
+    # Still passes if: the helper is installed before or after the rules block
+    # test: tests/test_setup.sh::"rules before diversion"
+    Given a sandbox Solaar that logs every command
+    When I run setup and accept
+    Then the rules block is written before Solaar is stopped for the diversion
+
+  Scenario: Both keyboards in one run, including a shared key name
+    # Still passes if: the keyboards are listed in a different order
+    # test: tests/test_setup.sh::"two keyboards in one run"
+    Given Solaar has saved entries for the POP Icon Keys and the MX Keys for Mac
+    And a synthetic third profile in the sandbox plugin copy shares the key name Screen Capture with the POP Icon Keys
+    When I run setup and accept
+    Then the plan names every keyboard and marks the MX Keys for Mac and the synthetic keyboard untested
+    And each keyboard's keys are diverted and one marked block holds every keyboard's rules
+    And each rule carries its own keyboard's Device condition so a shared key name runs its own action only
+
+  Scenario Outline: The plan is shown first and nothing changes unless I accept
+    # Still passes if: the prompt wording changes
+    # test: tests/test_setup.sh::"declining, and no terminal"
+    Given any Solaar state
+    When <action>
+    Then <result>
+
+    Examples:
+      | action                                  | result                                                                      |
+      | I run setup and answer no               | exit 0, "Nothing changed", no file changed and Solaar not stopped           |
+      | I run setup with no terminal and without yes | exit non-zero saying to re-run with --yes, nothing changed             |
+      | I run setup with --dry-run              | exit 0 with a diff, no file written, no applied record created              |
+      | I run uninstall and answer no           | exit 0, "Nothing changed"                                                   |
+
+  Scenario: Fresh install, Solaar has not seen a profiled keyboard
+    # Still passes if: Solaar needs a second wait before it records the keyboard
+    # test: tests/test_setup.sh::"fresh install: first read knows none, second knows both"
+    Given Solaar's saved settings hold no profiled keyboard
+    And a sandbox Solaar that records the POP Icon Keys and the MX Keys for Mac once it has been started
+    When I run setup
+    Then the plan lists every supported keyboard as tested or untested and says setup applies whichever Solaar then records
+    And declining exits 0 with nothing changed
+    And accepting starts Solaar once to record the keyboards, then applies both profiles and leaves Solaar running
+    And the applied record lists both keyboards
+
+  Scenario Outline: Solaar never records a supported keyboard
+    # Still passes if: the retry wait is shortened
+    # test: tests/test_setup.sh::"keyboard never seen by Solaar"
+    Given Solaar still records <recorded> after the wait
+    When setup finishes
+    Then it exits 2, says to connect the keyboard and run setup again and names the supported keyboards
+    And no applied record is written and no rule or Lock binding is written, and Solaar is running
+
+    Examples:
+      | recorded                  |
+      | nothing                   |
+      | only a mouse              |
+
+  Scenario: Uninstall after setup
+    # Still passes if: the backups are left in place
+    # test: tests/test_setup.sh::"uninstall after two keyboards"
+    Given setup applied both profiles
+    When I run uninstall and accept
+    Then every recorded control id is regular again and the record is deleted
+    And the marked blocks and the helper are gone and my own rules and bindings are byte-identical
+
+  Scenario: A later profile drops a control id
+    # Still passes if: the profile's other keys are reordered
+    # test: tests/test_setup.sh::"later profile drops an id"
+    Given the record lists id 212 for the POP Icon Keys and the shipped profile no longer maps it
+    When I run setup and accept
+    Then 212 is regular, its rule is gone, and the keys still mapped and user rules are untouched
+
+  Scenario: Setup stopped between the two record writes leaves a record uninstall can use
+    # Still passes if: the stop happens a little earlier or later in the wait
+    # test: tests/test_setup.sh::"setup stopped between the record writes, then uninstall"
+    Given the record lists id 212 and the profile no longer maps it
+    When I run setup, accept, and stop it while it waits for Solaar
+    Then the record on disk lists the old and the new ids together
+    And uninstall afterwards resets every id and deletes the record
+
+  Scenario Outline: A damaged or unfamiliar applied record stops setup and uninstall before any change
+    # Still passes if: the record's JSON is indented differently
+    # test: tests/test_setup.sh::"applied record problems"
+    Given <record>
+    When I run <command> and accept
+    Then <result>
+
+    Examples:
+      | record                                      | command   | result                                                                       |
+      | a file that is not valid JSON               | setup     | exit 1, a message naming the file, nothing changed                           |
+      | a record with a newer schema                | uninstall | exit 1, a message naming the file and saying to update the plugin, nothing changed |
+      | XDG_STATE_HOME unset                        | setup     | the record is written under the home folder's .local/state                   |
+      | XDG_STATE_HOME set to a relative path       | setup     | it is ignored and the default folder is used                                 |
+
+  Scenario: Upgrade from v0.3
+    # Still passes if: the old backups are left in place
+    # test: tests/test_setup.sh::"upgrade from v0.3"
+    Given a v0.3 install with pop-icon-keys blocks in the rules, bindings and autostart and the old helper
+    When I run the new setup and accept
+    Then each file has one logitech-keys block and no pop-icon-keys block and one copy of each rule
+    And the old helper is gone and the new helper is installed and my own rules and bindings are unchanged
+
+  Scenario: Setup after a migration is a no-op
+    # Still passes if: the sandbox folder names differ
+    # test: tests/test_setup.sh::"setup after migration changes nothing"
+    Given setup has just migrated a v0.3 install
+    When I run setup again and accept
+    Then no file changes and no backup file is created
+
+  Scenario: v0.3 rules that Solaar's editor rewrote without markers
+    # Still passes if: Solaar's editor reordered the keys in the file
+    # test: tests/test_setup.sh::"rules rewritten by Solaar's editor (markers gone)"
+    Given the rules contain the v0.3 rules without markers, one with the pop-icon-keys-show-desktop path
+    When I run the new setup and accept
+    Then they are replaced, not duplicated
+    And a user rule on one of those keys is reported under "your own rules left unchanged" and left alone
+
+  Scenario: A legacy two-line rule is listed before it is removed
+    # Still passes if: the backups are pruned to the newest three
+    # test: tests/test_setup.sh::"legacy rules listed and backed up"
+    Given an unmarked v0.3 rule of two lines with a Key and an Execute and no Device condition
+    When I run the new setup
+    Then the plan lists that rule by key as removed
+    And after accepting, the rules file has a backup holding the original rule
+
+  Scenario: The old plugin is still installed
+    # Still passes if: the warning is also printed on standard error
+    # test: tests/test_setup.sh::"old plugin warning"
+    Given the plugin folder io.github.poornan.pop-icon-keys exists
+    When I run setup
+    Then the plan warns that its Re-apply would write old blocks and that two widgets would show
+
+  Scenario Outline: Uninstall removes both generations
+    # Still passes if: the backups are left in place
+    # test: tests/test_setup.sh::"uninstall removes both generations"
+    Given an install that is <state>
+    When I run uninstall and accept
+    Then every artifact of <artifacts> is gone and everything else in the files is byte-identical to before setup
+
+    Examples:
+      | state                                               | artifacts                                                                              |
+      | v0.3 only, with marked blocks and the old helper    | the old blocks, the old helper and the old diversion                                   |
+      | v0.3 only, with unmarked legacy rules               | the legacy rules, the old helper and the old diversion                                 |
+      | mixed: old blocks and new blocks                    | old and new blocks, both helpers, legacy rules and the recorded diversion              |
+      | new only                                            | the new blocks, the helper, the recorded diversion and the record                      |
+
+  Scenario: Uninstall without an applied record resets the v0.3 key set
+    # Still passes if: the list of key names is printed in another order
+    # test: tests/test_setup.sh::"uninstall without a record"
+    Given a v0.3 install and no applied record
+    When I run uninstall
+    Then the plan names the exact v0.3 keys it will reset
+    And after accepting, those keys are regular again as v0.3 did
+
+  Scenario Outline: The v0.3 safety cases still end as they did
+    # Still passes if: the sandbox folder names differ
+    # test: tests/test_setup.sh (the v0.3 sections kept, listed in the inventory)
+    Given <case>
+    When setup or uninstall runs in a sandbox
+    Then it ends as it did in v0.3 and changes no file the user did not consent to
+
+    Examples:
+      | case                                                  |
+      | broken markers                                        |
+      | line endings, block position, symlinks and file modes |
+      | two saved entries, one in block style                 |
+      | a divert-keys id that is not a number                 |
+      | Hyprland reload fails                                 |
+      | Solaar ignores SIGTERM                                |
+      | Solaar takes a few seconds to save and exit           |
+      | setup stopped by SIGTERM while it waits for Solaar    |
+      | Solaar fails to start again                           |
+      | --yes does not install Solaar                         |
+      | backups: newest three kept                            |
+      | unreadable and unwritable files                       |
+      | missing Python yaml module                            |
+      | paths with spaces and commas, and a bad HOME          |
+      | relative XDG_CONFIG_HOME                              |
+      | concurrent runs                                       |
+      | uninstall when Solaar is not installed                |
+```
+
+**Steps:**
+
+#### Step 5.0: The new edit.py verbs, under new names
+
+**Complexity**: standard
+**IMPLEMENT**: Expose Slice 4's modules as `lib/edit.py` verbs with **names that do not exist in v0.3**, so no verb has two argument shapes: `plan setup|uninstall [--text | --lines <field>]` (inputs are file paths and flags; `--text` prints the consent text from `lib/plan.py`, `--lines` prints one value per line for bash), `put-block <mark> <path> <comment>` (body on stdin), `has-mark <mark> <path> <comment>`, `drop-block <mark> <path> <comment>`, `divert-profile`, `reset-ids`, `applied-read`, `applied-write`, `rules-scan-profiles`, and `legacy <field>` (prints a field of the frozen v0.3 table: the marker, the helper name, the key names, for bash). The profile folder is an **argument** (`--profiles <dir>`, default the plugin's own folder), never an environment variable. The v0.3 verbs stay until Step 5.4.
+**TEST**: `tests/test_edit.py` (extended): each new verb on temporary files; exit codes (3 for "no matching entry" as in v0.3, 4 for a refusal, with the message on stderr); `plan --text` equals `lib/plan.py`'s rendering; `legacy` prints the table.
+**REFACTOR**: None needed; `edit.py` stays argument handling only.
+**Files**: `lib/edit.py`, `tests/test_edit.py`
+**Covers**: AC10
+**Commit**: `Add the edit.py verbs setup and uninstall will call`
+
+#### Step 5.1: Setup applies the known profiles in two phases
+
+**Complexity**: complex
+**IMPLEMENT**: `lib.sh`: `MARK=logitech-keys`, helper `~/.local/bin/logitech-keys-show-desktop`, lock file `logitech-keys.lock`, profile set from `edit.py plan` (bash never parses profiles and knows no keyboard). `setup`: print `plan setup --text` (per-keyboard blocks, or every supported keyboard when Solaar knows none), consent, then Phase 1 (resolve the set, with one start-record-stop when it is empty) and Phase 2 (write the record's **union** of old and new ids, the rules block, the helper, the Lua block, then divert per profile on every matching entry, restart Solaar, then rewrite the record with the final ids). The rules and Lua text, the "already bound" check and the closing "try these keys" line come from the plan, never from bash. When the set is still empty after the wait setup exits 2 with the plan's exit-2 text, writes no record, no rules block and no Lock binding (the helper and the Solaar autostart block, which belong to no keyboard, are still applied), and leaves Solaar running. `--dry-run` writes no record. A damaged or newer record stops setup before any change (exit 1, message naming the file).
+**TEST**: `tests/test_setup.sh` (sandbox HOME, stubbed `pgrep`, `solaar`, `hyprctl`, `setsid`): POP-only run, the v0.3 "setup twice, then uninstall" adapted (second run changes nothing, no backup); rules-before-diversion from the stub's command log; the **fresh-install** run (a stub Solaar that records both keyboards once started: first read knows none, second knows both; decline exits 0 with nothing changed); never-recorded and only-a-mouse runs (exit 2, no record); the two-keyboard run with a synthetic third profile copied into the sandbox plugin tree; the record-problem table; the stop-between-writes case (SIGTERM while setup waits for Solaar, record holds the union). The Solaar stub's `show` reads a fixture derived by `tests/fixtures_derive.py`.
+**REFACTOR**: Remove the single-keyboard `DEVICE` and the `load_keys`/`DIVERT_IDS` path in favour of per-profile ids from the plan.
+**Files**: `setup`, `lib.sh`, `lib/solaar-procs.sh`, `tests/test_setup.sh`
+**Covers**: AC2, AC3, AC4, AC16, AC21, AC24
+**Commit**: `Apply every known keyboard's profile in one consent-gated setup`
+
+#### Step 5.2: Uninstall and reconcile from the applied record
+
+**Complexity**: complex
+**IMPLEMENT**: `uninstall` resets every id in `applied.json` on the entries named in the record and deletes it; with no record it resets the v0.3 POP key set for the POP entries (what v0.3 did) and its plan lists the exact key names; `setup` reconciles first, so ids and rules a profile no longer maps are reset and removed in the same pass as the new diversion. Uninstall removes old and new blocks and helpers.
+**TEST**: Sandbox: uninstall after POP-only and after two-keyboard setup (keys regular, record gone, user rules and bindings byte-identical as in v0.3); the dropped-id reconcile; uninstall without a record (key names in the plan); a record that names a profile no longer shipped; Solaar not installed.
+**REFACTOR**: Share the plan-printing helper between setup and uninstall.
+**Files**: `setup`, `uninstall`, `lib.sh`, `tests/test_setup.sh`
+**Covers**: AC8, AC16
+**Commit**: `Reset diversion from the applied record on uninstall and reconcile`
+
+#### Step 5.3: Migrate v0.3 blocks, helper and unmarked rules; warn about the old plugin
+
+**Complexity**: complex
+**IMPLEMENT**: Setup treats `pop-icon-keys` marked blocks (YAML and both Lua files) and legacy unmarked rules as ours: removes old blocks and legacy copies, deletes `~/.local/bin/pop-icon-keys-show-desktop`, replaces them with the new block and helper; the plan lists every removed legacy rule by key and says backups are made; user rules (`other`) are listed under "your own rules left unchanged", with the still-fires note when `overlaps`; the plan warns when `$CONFIG_HOME/omarchy/plugins/io.github.poornan.pop-icon-keys` exists. Uninstall removes old and new. Backups only for files that change; a second run after migration changes nothing. One list of legacy artifacts (`lib/legacy.py`) serves setup and uninstall.
+**TEST**: Sandbox: marked v0.3 install; v0.3 rules without markers (incl. the `pop-icon-keys-show-desktop` path); mixed; a legacy two-line rule listed and backed up; a user rule on a shared key left alone and listed; the old plugin folder warning; setup again after migration is a no-op with no backup; the **Uninstall removes both generations** outline (v0.3-only marked, v0.3-only unmarked, mixed, new-only: each artifact gone, user content byte-identical); the existing v0.3 "rules rewritten by Solaar's editor" section adapted.
+**REFACTOR**: None needed beyond the single legacy list.
+**Files**: `setup`, `uninstall`, `lib.sh`, `lib/edit.py`, `tests/test_setup.sh`
+**Covers**: AC8, AC17, AC26
+**Commit**: `Migrate v0.3 blocks, helper and unmarked rules to Logitech Keys`
+
+#### Step 5.4: Retire the v0.3 single-keyboard code and fixtures
+
+**Complexity**: standard
+**IMPLEMENT**: Delete `bin/pop-icon-keys-status`, `bin/pop-icon-keys-restore`, `bin/pop-icon-keys-show-desktop`, the v0.3 verbs in `lib/edit.py` (`block`, `has-block`, `divert`, `keys`, `rules-body`, `rules-scan`, `rules-drop-copies`) and the v0.3 rule-body generator in `lib/rules.py`, `tests/test_fixture_equality.py` and the unused per-variant fixture files (`routed`, `dropped`, `not-setup` for both profiles, which the derived variants replaced), and the stale comment in `lib/solaar-procs.sh`. `lib/legacy.py` stays: it is the migration table.
+**TEST**: Whole `tests/test_setup.sh`, `tests/test_edit.py`, `tests/test_status.py`, `tests/test_profiles.py`, `tests/test_rules.py`, `tests/test_state.py`, `tests/test_plan.py` green; a test asserts `lib/edit.py` contains no `RULES` and no name-to-id data (the v0.3 swap cannot return); `grep -R "pop-icon-keys"` finds only the migration code, its tests, `tests/permanent_slugs.txt`, the fixtures and the profile slug; **the v0.3 check count is not lower**: `tests/test_setup.sh`'s `ALL OK (N checks)` plus the checks printed by `tests/test_status.py` is at least the 119 recorded at baseline (the number is written in the commit message).
+**REFACTOR**: Re-read `lib/edit.py` and `lib.sh` top to bottom for leftovers of the single-keyboard design.
+**Files**: `lib/edit.py`, `lib/rules.py`, `lib/solaar-procs.sh`, `tests/test_fixture_equality.py`, `bin/pop-icon-keys-status`, `bin/pop-icon-keys-restore`, `bin/pop-icon-keys-show-desktop`, `tests/fixtures/pop-icon-keys/routed.txt`, `tests/fixtures/pop-icon-keys/dropped.txt`, `tests/fixtures/pop-icon-keys/not-setup.txt`, `tests/fixtures/mx-keys-mac/routed.txt`, `tests/fixtures/mx-keys-mac/dropped.txt`, `tests/fixtures/mx-keys-mac/not-setup.txt`, `tests/test_edit.py`
+**Covers**: AC10, AC23
+**Commit**: `Remove the v0.3 single-keyboard code and per-variant fixtures`
+
+### Slice 6: Contributor gate and documentation (last)
+
+**Depends-on:** 3, 5
+**Files:** `README.md`, `.github/workflows/test.yml`, `.github/pull_request_template.md`, `.github/CODEOWNERS`, `tests/test_repo.py`, `.claude/CLAUDE.md`, `.gitignore`
+
+This slice is last on purpose: every earlier slice already leaves the tree green, and the documents describe what exists. `tests/test_repo.py` checks **structure only** (files exist, lists are complete, patterns hold). It does not assert prose, with the three M9 guards and a short keyword list for the README topics as the only exceptions (Decided list).
+
+**Behavior:**
+
+```gherkin
+Feature: The repository gates keyboard contributions and documents them
+
+  Scenario: CI runs the stdlib tests on every push and pull request
+    # Still passes if: the runner image version changes
+    # test: tests/test_repo.py::workflow_structure
+    Given the workflow file
+    Then it runs on push and pull request and its permissions are contents read
+    And it lists the syntax check and every test file in the tests folder except the QML harness
+    And it does not mention quickshell and needs no real Solaar
+
+  Scenario: Every action in the workflow is pinned to a full commit
+    # Still passes if: the action's version comment changes
+    # test: tests/test_repo.py::actions_pinned
+    Given the workflow file
+    Then every "uses" line ends in @ followed by a forty-digit hexadecimal commit id
+
+  Scenario: The PR template carries the contributor checklist
+    # Still passes if: the checklist items are reordered
+    # test: tests/test_repo.py::pr_template_items
+    Given the pull request template
+    Then it asks for the recorded fixture, masked serials, ids checked against solaar show, only existing action ids, a README row, an appended permanent slug and a truthful verified block
+
+  Scenario: Code owners cover everything and the trusted paths explicitly
+    # Still passes if: further owners are added
+    # test: tests/test_repo.py::codeowners
+    Given the CODEOWNERS file
+    Then a catch-all line gives poornan every path
+    And profiles/, lib/actions.json and lib/ are listed explicitly for poornan
+
+  Scenario Outline: The README has its sections in the fixed order
+    # Still passes if: a section gains a subsection
+    # test: tests/test_repo.py::readme_order
+    Given the README
+    Then the heading for <section> appears <position>
+
+    Examples:
+      | section                                | position                          |
+      | what it does                           | first                             |
+      | supported keyboards                    | after what it does                |
+      | install and uninstall                  | after supported keyboards         |
+      | upgrading from v0.3                    | after install and uninstall       |
+      | rollback                               | after upgrading from v0.3         |
+      | troubleshooting                        | after rollback                    |
+      | Add your keyboard                      | after troubleshooting             |
+
+  Scenario Outline: The README explains each topic a contributor or user needs
+    # Still passes if: the example keyboard changes
+    # test: tests/test_repo.py::readme_topics
+    Given the README
+    Then it mentions <topic> by <keyword>
+
+    Examples:
+      | topic                                                         | keyword          |
+      | keycaps depend on Fn-swap                                     | Fn               |
+      | Solaar may name a cid differently across versions             | cid              |
+      | a new profile is a minor release                              | minor            |
+      | a fix is a patch release                                      | patch            |
+      | the one allowed non-profile change is the action table        | actions.json     |
+      | rollback is running v0.4's own uninstall                      | uninstall        |
+      | one confirmation covers all keyboards and there is no per-keyboard option | --only |
+      | the masking command for serial numbers and unit ids           | 00000000         |
+      | the exact local test command                                  | tests/test_profiles.py |
+      | testing your keyboard and sending a verified block            | verified         |
+
+  Scenario: Every profile has a README row that says whether it is tested
+    # Still passes if: the table gains a column
+    # test: tests/test_repo.py::readme_row_per_profile
+    Given each profile in profiles/
+    Then the README table has a row with its display name
+    And the row says tested exactly when the profile has a verified block
+
+  Scenario: The shipped files use the new identity and the old name stays in an allowlist
+    # Still passes if: the old name appears in a migration note
+    # test: tests/test_repo.py::identity_allowlist
+    Given the shipped files
+    Then the manifest id is io.github.poornan.logitech-keys
+    And the old name pop-icon-keys appears only in files on a fixed allowlist
+    And the v0.3 RULES table appears nowhere
+
+  Scenario: The widget source holds no keyboard or key names
+    # Still passes if: the widget's layout changes
+    # test: tests/test_repo.py::panel_has_no_names
+    Given Panel.qml and the shipped profiles
+    Then Panel.qml contains none of their keyboard names, key names or key labels
+
+  Scenario: The design records are consistent
+    # Still passes if: the ADR text is edited for style
+    # test: tests/test_repo.py::design_records
+    Given the spec and ADRs
+    Then ADR 0005 is accepted and ADR 0006 exists
+    And the spec has no "Device / Model" condition text, its AC3a does not call the swapped data comments, and it makes no both-tested or jq claim
+```
+
+**Steps:**
+
+#### Step 6.1: CI workflow, PR template, CODEOWNERS and structural repo tests
+
+**Complexity**: standard
+**IMPLEMENT**: `.github/workflows/test.yml` (push and pull request, `permissions: contents: read`, every `uses:` pinned as `@<40 hex>` with the SHA looked up at build time and the version in a comment, PyYAML present on the runner or installed in a virtual environment, runs the syntax check, `test_profiles.py`, `test_status.py`, `test_rules.py`, `test_state.py`, `test_plan.py`, `test_edit.py`, `test_repo.py`, `python3 -I tests/qml_logic.py --pure` and `bash tests/test_setup.sh`; not the QML harness); `.github/pull_request_template.md` with the checklist (recorded fixture, masked serials, ids checked against `solaar show`, only existing action ids, README row, permanent slug appended, truthful `verified` block); `.github/CODEOWNERS` (`* @poornan`, then `profiles/`, `lib/actions.json` and `lib/` explicitly; the owner turns on "require review from Code Owners" on `main`, see the owner items). `tests/test_repo.py` (stdlib, structural): the three files exist; the workflow lists every `tests/test_*.py` and `.sh` file and neither mentions `quickshell`; `uses: ...@<40 hex>` on every action line; `permissions: contents: read`; the PR template items; CODEOWNERS lines; every profile has a README row with its display name and a tested/untested word matching `verified`; the manifest id; an **allowlist** of files that may contain `pop-icon-keys` (migration code, its tests, the permanent slugs file, the profile and fixture folders, the ADRs, the specs, the plans, the README migration notes); `RULES` appears in no shipped file; `Panel.qml` contains none of the profiles' keyboard names, key names or labels (read from the profiles, not hand-listed).
+**TEST**: `python3 -I tests/test_repo.py`; a mutation of each rule (an unpinned action, a missing test file in the workflow, a name added to `Panel.qml`) is caught.
+**REFACTOR**: None needed.
+**Files**: `.github/workflows/test.yml`, `.github/pull_request_template.md`, `.github/CODEOWNERS`, `tests/test_repo.py`
+**Covers**: AC12, AC20
+**Commit**: `Add CI, a PR template, code owners and structural repo tests`
+
+#### Step 6.2: README rewrite and "Add your keyboard"
+
+**Complexity**: standard
+**IMPLEMENT**: Rewrite `README.md` in this order: what it does; supported keyboards (a table marking the POP Icon Keys **tested with real hardware** (Solaar 1.1.20, Linux OS mode, Fn-swap on) and the MX Keys for Mac untested); install and uninstall (new id and repo URL; one y/N covers all keyboards and the plan marks untested ones loudly, there is no per-keyboard `--only` option); upgrading from v0.3 (what setup migrates, the old-plugin warning); rollback (run **v0.4's own uninstall, which removes both generations**; there is no downgrade path); troubleshooting (what each icon state means, in the widget's words: Active, Lost, Not set up, Not found, Untested, Solaar not running); then **Add your keyboard**: read key names and ids with `solaar show`; the profile format; the action table and the one allowed non-profile change (a new action is a reviewed edit to `lib/actions.json`); a copy-paste command that masks serial numbers and unit ids as `00000000`; the exact local test command (`python3 -I tests/test_profiles.py`); an example validator error; a worked diff of the MX Keys for Mac profile; "Test my keyboard" (press each key, then open a PR adding a truthful `verified` block); the notes for the Later items (Fn-swap keycaps, cid naming across Solaar versions, release batching: a new profile is a minor release, a fix a patch). No scaffold helper (decided: README only). The README does not claim the widget's Tab behaviour unless Step 3.1 verified it. Keep the `.gitignore` entry for `.dev-team-reports/` (already in the working tree).
+**TEST**: `tests/test_repo.py` (extended): heading order, the keyword list per topic (not sentence wording), a row per profile; the M9 guards (the spec has no `Device` / `Model` text; AC3a does not say "comments"; no both-tested or jq claim); ADR 0005 accepted, ADR 0006 present.
+**REFACTOR**: Cut README text the profiles now carry (key tables are described once).
+**Files**: `README.md`, `tests/test_repo.py`, `.gitignore`
+**Covers**: AC1, AC5, AC9
+**Commit**: `Document Logitech Keys and how to add a keyboard`
+
+#### Step 6.3: Refresh project rules
+
+**Complexity**: trivial
+**IMPLEMENT**: Update `.claude/CLAUDE.md` for what was built: the final module list and test commands (including `tests/test_repo.py`, the new Python tests, `LK_REQUIRE_SOLAAR=1`), the CI note, final file names.
+**TEST**: Every command in the Commands table runs and passes from the repository root.
+**REFACTOR**: Trim anything in CLAUDE.md that the README now covers.
+**Files**: `.claude/CLAUDE.md`
+**Covers**: AC10
+**Commit**: `Refresh the project rules for v0.4`
+
+## Parallelization
+
+Each slice declares `Depends-on`; the waves come from `plan_waves.py`.
+
+```mermaid
+graph TD
+  S1[Slice 1 profiles, reader, identity] --> S2[Slice 2 status and restore]
+  S1 --> S4[Slice 4 rule engine modules]
+  S2 --> S3[Slice 3 widget]
+  S2 --> S5[Slice 5 setup, uninstall, migration]
+  S4 --> S5
+  S3 --> S6[Slice 6 contributor gate and docs]
+  S5 --> S6
+```
+
+| Wave | Slices (parallel) |
+|------|-------------------|
+| 1 | 1 |
+| 2 | 2, 4 |
+| 3 | 3, 5 |
+| 4 | 6 |
+
+Same-wave independence, checked by hand and by `plan_waves.py` (no collisions, no scope mismatches):
+Wave 2 (2 and 4) share no file; both import `lib/profiles.py`, `lib/solaarcfg.py` and `tests/solaar_table.py` from Slice 1 read-only, and Slice 2 does not import any Slice 4 module (its tests use Slice 1's `fixtures_derive.py`). Wave 3 (3 and 5) share no file; Slice 3 reads only `tests/qml/status-sample.json` (Slice 2's committed output) and never the per-variant fixtures or `tests/test_setup.sh` that Slice 5 changes; `tests/test_status.py` is written by Slice 2 alone and references neither `Panel.qml` nor the v0.3 key list.
+
+## Complexity Classification
+
+| Rating | Criteria | Review depth |
+|--------|----------|--------------|
+| `trivial` | Single-file rename, config change, documentation-only | Skip inline review; covered by final `/code-review` |
+| `standard` | New function, test, module, or behavioural change within existing patterns | Spec-compliance + relevant quality agents |
+| `complex` | Architectural change, security-sensitive, cross-cutting concern, new abstraction | Full agent suite |
+
+Steps rated `complex`: 1.2, 2.1, 2.4, 3.1, 4.0, 4.1, 4.2, 4.3, 4.4, 4.5, 5.1, 5.2, 5.3.
+
+## Traceability
+
+### Acceptance criteria to slice, step and covering test
+
+Test names are the check groups to create. All 26 criteria appear, AC23 being
+the spec's AC3a. Every scenario carries a `# test:` line naming its test; this
+table is the criterion-level index.
+
+| AC | Slice.Step | Covering test |
+|----|------------|---------------|
+| AC1 | 3.3, 6.2 | qml_logic.py "identity"; test_repo.py "identity_allowlist", "readme_topics"; `omarchy-plugin-validate .` |
+| AC2 | 2.3, 2.4, 5.1 | test_setup.sh "POP only: setup twice, then uninstall" and the kept v0.3 sections (inventory below); test_status.py "solaar_states" |
+| AC3 | 1.1, 4.1, 4.3, 5.1 | test_profiles.py "mx_mapping_exact" (id set exactly {225, 191, 111, 10}); test_state.py "mx_only_edits"; test_setup.sh "two keyboards in one run" |
+| AC4 | 4.1, 5.1 | test_rules.py "rules_fire_only_for_own_keyboard" (synthetic profile, Solaar's evaluator); test_setup.sh "two keyboards in one run" |
+| AC5 | 1.4, 1.5, 4.3, 4.5, 6.2 | test_profiles.py "fixture_required", mutation matrix; test_plan.py "new_keyboard_data_only"; test_status.py "two_keyboards" with a third profile; test_repo.py "readme_row_per_profile" |
+| AC6 | 2.2, 3.1, 3.2 | test_status.py "two_keyboards"; qml shell "two_keyboards_one_icon", "untested_label", "icon_warning" |
+| AC7 | 2.4, 3.2 | test_status.py "restore_one_keyboard", "restore_both_once", "restore_exact_name", "restore_writes_nothing", "restore_ambiguous"; qml shell "restore_one_keyboard", "restore_two_keyboards" |
+| AC8 | 5.2, 5.3 | test_setup.sh "upgrade from v0.3", "setup after migration changes nothing", "uninstall removes both generations" |
+| AC9 | 6.2 | test_repo.py "readme_order", "readme_topics" |
+| AC10 | 2.4, 4.0, 5.0, 5.4, 6.3 | whole pre-PR gate below; test_edit.py "v03_golden"; the v0.3 sections kept in test_setup.sh or moved to test_status.py (inventory); the v0.3 check count not lower (5.4) |
+| AC11 | 1.2, 1.5, 2.1, 2.4 | test_profiles.py "substring_name_refused", "identity_matcher"; test_status.py "lookalike_models" |
+| AC12 | 2.1, 2.2, 3.1, 6.1 | test_status.py "suffixed_names", "state_table"; test_repo.py "panel_has_no_names" (stdlib, run by CI); qml_logic.py "no_names" |
+| AC13 | 1.1, 1.2, 4.1 | test_profiles.py "mutation_matrix", "chord_boundary_table", "action_table_mutations", "chord_conflict_refused"; test_rules.py "escaping_sinks", "actions_table_drives_rules" |
+| AC14 | 4.1, 4.2 | test_rules.py "rules_from_profile", "solaar_loads_rules", "rules_fire_only_for_own_keyboard", "classify_shapes" |
+| AC15 | 2.1, 2.2, 3.2 | test_status.py "state_table", "absent_key", "older_solaar_live_only"; qml shell "key_row_text" (absent has the dimmed flag), "icon_warning" |
+| AC16 | 4.3, 4.4, 5.1, 5.2 | test_state.py "dropped_id_reset", "dropped_id_no_entry", "uninstall_from_record", "record_before_divert"; test_setup.sh "later profile drops an id", "setup stopped between the record writes", "applied record problems" |
+| AC17 | 4.2, 5.3 | test_rules.py "legacy_forms"; test_setup.sh "rules rewritten by Solaar's editor", "legacy rules listed and backed up", "old plugin warning" |
+| AC18 | 1.2, 1.3 | test_profiles.py "key_table_cross_check", "mutation_matrix", "action_table_mutations"; dev gate `LK_REQUIRE_SOLAAR=1` reports 0 skipped |
+| AC19 | 1.1, 1.4 | test_profiles.py "fixture_rules" (masking incl. MAC and hid paths, `verified.solaar` equals the first line, zero absent keys in the POP fixture), "derived_variants" |
+| AC20 | 6.1 | test_repo.py "workflow_structure", "actions_pinned", "pr_template_items", "codeowners" |
+| AC21 | 4.5, 5.1 | test_plan.py "plan_contents"; test_setup.sh "fresh install: first read knows none, second knows both", "keyboard never seen by Solaar" |
+| AC22 | 3.3 | qml_logic.py "identity" (IPC target and module name) |
+| AC23 (spec AC3a) | 1.1, 1.3, 2.1, 5.4 | test_profiles.py "pop_pairs_and_lock_binding"; test_status.py "regression_212_266"; test_edit.py "no RULES or name-to-id data in edit.py" |
+| AC24 | 4.4, 5.1 | test_state.py "applied_record_robustness", "record_before_divert"; test_setup.sh "applied record problems", "setup stopped between the record writes" |
+| AC25 | 3.1, 3.2 | qml shell "key_row_text", "untested_label", "all_absent_message", "mostly_absent_message", "status_errors", "restore_failure_copy", "reapply_setup", "keyboard_use" |
+| AC26 | 4.5, 5.3 | test_plan.py "plan_contents" (layout order pinned); test_setup.sh "uninstall without a record", "legacy rules listed and backed up" |
+
+### POP spec AC1 to AC18 to test (AC2 inventory)
+
+The v0.3 spec ([pop-icon-keys-plugin.md](../docs/specs/pop-icon-keys-plugin.md)) still holds for the POP Icon Keys profile.
+
+| POP AC | What | Test after this plan |
+|---|---|---|
+| AC1-AC6 | F4 to F8 and Lock mappings | test_rules.py "rules_from_profile"; test_setup.sh "POP only: setup twice, then uninstall" (each rule and the Lock binding present); owner smoke test on the real keyboard (unverified item) |
+| AC7 | Other keys unchanged | test_state.py "mx_only_edits"-style check that only mapped ids are diverted; test_setup.sh "POP only" (no other id touched) |
+| AC8 | Cmd and Opt send Super and Alt | no plugin code (keyboard OS mode); recorded in `verified.osMode`; README note |
+| AC9 | Mapping survives restart and reboot | test_setup.sh "Solaar takes a few seconds to save and exit", "Solaar ignores SIGTERM", "setup stopped by SIGTERM" (kept) |
+| AC10 | Dropped keys restored | test_status.py "restore_*", state table; qml shell restore scenarios |
+| AC11 | Installable from GitHub | `omarchy-plugin-validate .`; test_repo.py "identity_allowlist" |
+| AC12 | Setup lists changes and asks first | test_setup.sh "declining, and no terminal", "--yes never installs Solaar" (kept); test_plan.py "plan_contents" |
+| AC13 | Uninstall removes what setup added | test_setup.sh "uninstall after two keyboards", "uninstall removes both generations" |
+| AC14 | No personal paths or names | Pre-PR gate grep; test_repo.py allowlist |
+| AC15 | Widget shows battery and key routing | test_status.py JSON; qml shell sections |
+| AC16 | README shows the screenshot | README; `preview.png` refresh is an owner item |
+| AC17 | Passes `omarchy-plugin-validate` | Pre-PR gate |
+| AC18 | Dev-team code review passes | Pre-PR gate |
+
+### v0.3 `tests/test_setup.sh` sections: where each goes
+
+Baseline recorded before Step 2.4: `ALL OK (119 checks)`. At Step 5.4 the total of `test_setup.sh` and `test_status.py` is not lower. Counts are `check` lines per section (loops make the runtime total larger).
+
+| v0.3 section | Checks | Destination |
+|---|---|---|
+| setup twice, then uninstall | 25 | kept in test_setup.sh, adapted to the POP-only run |
+| broken markers stop setup and uninstall before any change | 2 | kept (old and new markers) |
+| line endings, block position, symlinks and file modes are kept | 8 | kept |
+| two saved entries for the keyboard, one in block style | 4 | kept (and mirrored in test_state.py) |
+| a divert-keys id that is not a number | 4 | kept |
+| Hyprland reload fails | 2 | kept |
+| keyboard never seen by Solaar | 2 | kept, becomes the exit-2 cases |
+| Solaar ignores SIGTERM | 3 | kept |
+| Solaar takes a few seconds to save and exit | 2 | kept |
+| setup is stopped (SIGTERM) while it waits for Solaar | 4 | kept, extended with the union-record check |
+| a 'solaar show' running alongside the daemon | 5 | three setup checks kept; two status checks (lines 313-314) moved to test_status.py |
+| Solaar fails to start again | 1 | kept |
+| declining, and no terminal | 7 | kept |
+| --yes never installs Solaar | 2 | kept |
+| rules rewritten by Solaar's editor (markers gone) | 9 | kept, adapted to legacy forms |
+| backups: newest 3 kept, by the time in their name | 3 | kept |
+| unreadable and unwritable files | 6 | kept |
+| missing Python yaml module | 2 | kept |
+| paths with spaces and commas, and a bad HOME | 3 | kept |
+| relative XDG_CONFIG_HOME is ignored | 1 | kept (plus a relative XDG_STATE_HOME case) |
+| one setup at a time | 1 | kept (new lock file name) |
+| uninstall when Solaar is not installed | 1 | kept |
+| status helper on real solaar show output | 10 | moved to test_status.py (Steps 2.1 to 2.3), run against the new helper and the derived fixtures |
+| restore helper | 2 | moved to test_status.py (Step 2.4) |
+| one key list everywhere | 2 | **deleted**: it grepped `Panel.qml` for key names and read `edit.py keys`, the coupling this design removes; replaced by "every profile key name appears in the status output" in test_status.py and the no-names check in test_repo.py |
+
+### Architect review items and ADR 0005 additions
+
+| Item | Where it lands | Covering test |
+|------|----------------|---------------|
+| M1 exact model id identity, per-device split, ambiguity skip | 1.2, 1.5, 2.1, 2.4 | test_profiles.py substring and identity matcher; test_status.py look-alike models; restore ambiguity |
+| M2 Python diversion parsing, JSON, `schema`, no keyboard knowledge in QML | 2.1, 2.2, 3.1, 6.1 | test_status.py suffix pairs and JSON shape; test_repo.py no-names check |
+| M3 action ids, `lib/actions.json`, chord regex, AC5 text | 1.1, 1.2, 4.1; README 6.2 | mutation matrix; test_rules.py generation; test_repo.py README keyword for the allowed non-profile change |
+| M4 always-`Device` rules, no `Model`, classify new and v0.3 | 4.1, 4.2 | test_rules.py Device, evaluator and classify |
+| M5 `absent` state | 2.1, 2.2, 3.2 | test_status.py state table; qml absent dimmed |
+| M6 `applied.json`, reconcile, permanent slugs | 4.3, 4.4, 5.1, 5.2, 1.3 | test_state.py; test_setup.sh drop-id and uninstall; tests/permanent_slugs.txt checked by test_profiles.py |
+| M7 migration: legacy forms, old helper and Lua blocks, old-plugin warning, AC8 extended | 4.2, 5.3 | test_rules.py legacy forms; test_setup.sh migration sections |
+| M8 contributor gate: schema, strict reader, CONTROL cross-check, one fixture plus derived variants, masked serials, `verified`, synthetic label, CI, template, CODEOWNERS, untested shown in plan, README and widget | 1.1 to 1.4, 3.2, 4.5, 6.1, 6.2 | test_profiles.py; qml untested label; test_plan.py marks untested; test_repo.py |
+| M9 spec text fixes (Ambiguity Log 3 and 8, `Device` only, AC3a wording, fresh-install gap) | Done in commit `eff584c` (verified with `git log`); guarded in 6.2; fresh-install gap is AC21 in 5.1 | test_repo.py "design_records"; test_setup.sh AC21 |
+| ADR 0005 additions (identity, actions, Device, applied state, slugs, absent, schema, non-goals); ADR 0006 | Done in `eff584c`, amended again in this revision; guarded in 6.2 | test_repo.py "design_records" |
+| Later: only `ipcTarget`/`moduleName` now; cid-name warning, keycap labels, release batching as notes | 3.3; 6.2 | qml identity; test_repo.py README keywords |
+| Over-engineering cuts: one fixture plus derived variants; sandbox runs only POP, two-keyboard and migration; no schema migration machinery; generic `bindings` kept but restricted | 1.4, 5.1, 5.3; none; 1.2 | test_profiles.py fixture rule; test_setup.sh run list; chord regex in the mutation matrix |
+
+## Pre-PR Quality Gate
+
+Run from the repository root on the feature branch. Never against the real
+`$HOME`; the sandbox tests use stubs. `shellcheck` is not installed here. The
+Python tests run with `LK_REQUIRE_SOLAAR=1` on the dev machine: any skipped
+Solaar check is a failure, and each test file's last line must read
+`solaar checks: <n> run, 0 skipped`.
+
+- [ ] `omarchy-plugin-validate .`
+- [ ] `for f in setup uninstall lib.sh bin/*; do bash -n "$f"; done`
+- [ ] `LK_REQUIRE_SOLAAR=1 python3 -I tests/test_profiles.py` (0 skipped Solaar checks)
+- [ ] `LK_REQUIRE_SOLAAR=1 python3 -I tests/test_status.py` (0 skipped)
+- [ ] `LK_REQUIRE_SOLAAR=1 python3 -I tests/test_rules.py` (0 skipped; the Solaar rule loader and evaluator ran)
+- [ ] `python3 -I tests/test_state.py`, `python3 -I tests/test_plan.py`, `python3 -I tests/test_edit.py`, `python3 -I tests/test_repo.py`
+- [ ] `bash tests/test_setup.sh` (check count not lower than the v0.3 baseline of 119, counted with `test_status.py`)
+- [ ] `python3 tests/qml_logic.py` and `python3 -I tests/qml_logic.py --pure`
+- [ ] `/usr/lib/qt6/bin/qmllint Panel.qml` (unresolved `qs.*` import warnings expected)
+- [ ] `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/plan_waves.py" plans/logitech-keys-profiles.md` exits 0 with no collisions or scope mismatches
+- [ ] `python3 .../plan_falsifiers.py plans/logitech-keys-profiles.md` reports an empty `missing`; `python3 .../feature_record.py check plans/logitech-keys-profiles.md --spec docs/specs/logitech-keys-profiles.md` reports 0 violations; `features/` is regenerated by `plan_gherkin_export.py` if the plan changed
+- [ ] `sha256sum` of `~/.config/solaar/rules.yaml`, `~/.config/solaar/config.yaml`, `~/.config/hypr/bindings.lua` and `~/.config/hypr/autostart.lua` identical before and after the whole build (read-only check)
+- [ ] A grep of shipped files finds no hard-coded `/home` path, `curl | sh`, `sudo`, or `/tmp` process control (marketplace baseline)
+- [ ] `/dev-team:code-review` passes (reports under `.dev-team-reports/`, not committed)
+- [ ] README, CLAUDE.md, ADRs and spec updated (Slice 6); manifest version 0.4.0 in the same change
+- [ ] `/dev-team:pr` against `main` (no push without the owner's go-ahead)
+
+Owner items, **unverified by this plan** (the build cannot do them):
+
+- [ ] Smoke test on the real POP Icon Keys: Show Desktop, Dictation, Emoji, Screen Capture, Search and Lock each fire the intended action; repeat after a Solaar restart. Required before tagging `v0.4.0`.
+- [ ] Rename the GitHub repository to `poornan/omarchy-logitech-keys` **before** tagging or any marketplace submission.
+- [ ] Replace `preview.png` with a new real desktop screenshot of the Logitech Keys widget (bar and popup only, no personal windows).
+- [ ] Turn on "require review from Code Owners" for `main` (CODEOWNERS only takes effect with it).
+- [ ] Tag `v0.4.0` on `main` after the merge; marketplace submission only after the rename and the smoke test.
+
+## Skipped (low value)
+
+| Finding | Rationale (one line) |
+|---------|----------------------|
+| Full sandbox setup run for the MX-only case | Same code path as POP; the pure-Python MX-only check in `test_state.py` and the two-keyboard sandbox run cover it |
+| Per-profile `routed`/`dropped`/`not-set-up` recordings | Replaced by one recording plus derived variants (architect over-engineering cut) |
+| Schema-migration machinery for `"schema": 1` | Profiles live in the repo; a schema change is one commit (architect cut) |
+| Setup-time warning when Solaar names a cid differently | "Later" item; README note only |
+| A scaffold helper for new profiles | README only (Decided list) |
+| Collapsing popup sections | Two keyboards fit; revisit when a third ships (Decided list) |
+
+## Risks & Open Questions
+
+- **Solaar's rule syntax for `Or` of `Device`** is taken from the architect's
+  reading of Solaar 1.1.20 source (`diversion.py`); Step 4.1 loads the generated
+  rules with Solaar's own rule code on the dev machine and a skip there is a
+  failure (`LK_REQUIRE_SOLAAR=1`), with the result recorded in the commit message.
+  CI cannot run that check (no Solaar) and runs everything else.
+- **Owner fact-check, `.claude/CLAUDE.md` wording.** Its opening said the plugin
+  was "listed in the Omarchy plugin marketplace", which contradicts ADR 0006 and
+  the architect's Q1 answer (never submitted; only the owner installed v0.3 from
+  a local path). It now reads "prepared for marketplace submission; not yet
+  submitted". Please confirm that is the true state.
+- **MX Keys for Mac is untested by design**: its cids and names come from Solaar's
+  key table and the owner's saved settings; the fixture is synthetic. Nothing in
+  this plan can verify it; the widget, plan and README say so.
+- **Owner smoke test on the real POP Icon Keys** (Pre-PR gate, owner items) is the
+  only check that the generated rules fire from the real keyboard; it is not
+  automated and not yet done.
+- **Rollback and downgrade.** Recovery from a bad v0.4 install is v0.4's own
+  `uninstall`, which removes both generations (README and CLAUDE.md say so). There
+  is no downgrade path to v0.3 and no migration back.
+- **One PR.** The owner's workflow is kept (one PR). Every slice is green on its
+  own and the contributor-gate and documentation slice is last, so the PR reads in
+  slice order; a mid-review problem is fixed on the branch, not split out.
+- **Uninstall with no `applied.json`** (a v0.3 install uninstalled before the new
+  setup ever ran): the plan resets the v0.3 POP key set like v0.3 did, which also
+  resets keys the user had diverted themselves (a v0.3 behaviour), and lists the
+  exact key names. Decided, owner may override.
+- **Legacy unmarked two-line v0.3 rules are deleted** (a rule with a Key and an
+  Execute and no Device condition cannot be told from v0.3's own). Each is listed
+  in the plan, backups exist. Decided, owner may override.
+- **Tab in the popup.** Omarchy's `PanelKeyCatcher` may claim Tab to switch
+  panels; Step 3.1 verifies it. If Tab is claimed, the shortcut letters (`r`, `s`,
+  `k`) and Escape are the keyboard path, named in the tooltips and the README.
+- **Slice 2 removes sections from `tests/test_setup.sh`** (status, restore, key
+  list) and re-creates them in `tests/test_status.py` with the new helpers; the old
+  `bin/pop-icon-keys-*` helpers stay until Step 5.4 so the tree is green throughout,
+  and the v0.3 `lib/edit.py` verbs keep their v0.3 arguments until Step 5.4.
+- **`preview.png`** still shows the v0.3 "POP Icon Keys" widget; it needs a real
+  screenshot from the owner's desktop. Not produced by this plan.
+- **CI action pinning:** Step 6.1 pins by full SHA, looked up at build time; the
+  plan does not hard-code one.
+- **The pinned Solaar key table** (`tests/solaar_control_1.1.20.json`) goes stale
+  when Solaar changes its table; the dev-machine test compares it with the
+  installed Solaar for the names the profiles use and fails on a mismatch.
+- **Recorded POP fixture** was captured before this plan; Step 1.4 re-checks it
+  for masking (MAC addresses, hid paths) and zero absent keys.
+
+### Decided (owner may override)
+
+These were open or contested in plan review and are now decided; each can be
+reversed by the owner at the cost named.
+
+| # | Decision | Why | Cost to reverse |
+|---|---|---|---|
+| 1 | Restore keeps AC7 as written: an ambiguous selector is skipped, not worked around; the matched block's exact name is used | `solaar config` matches by substring; a wrong device is worse than a skipped restore | Change AC7, status.py restore-plan |
+| 2 | CI stays stdlib-only with a pinned Solaar key-table snapshot; the dev gate runs real Solaar with zero skips (`LK_REQUIRE_SOLAAR=1`) | CI cannot install Solaar; the dev machine can | Add Solaar to the CI image |
+| 3 | Uninstall without `applied.json` resets the v0.3 POP key set and lists the exact key names | Matches v0.3; the alternative leaves keys diverted with no rule | One branch in setup/uninstall and its plan text |
+| 4 | Deleting legacy two-line v0.3 rules (no Device condition) is accepted; each is listed and backed up | They cannot be told from v0.3's own, and leaving them cancels the toggle | Leave them and warn instead |
+| 5 | One y/N for all keyboards; untested keyboards are marked loudly in the plan with exact keys and actions; README says there is no `--only` | A per-keyboard option is more surface than two keyboards need | Add a flag later |
+| 6 | Popup sections are not collapsible; ordered by slug | Two keyboards fit | Add when a third ships |
+| 7 | No scaffold helper for new profiles; README only | One JSON file and a fixture | Add a script later |
+| 8 | CODEOWNERS is `* @poornan` plus explicit paths | Catch-all keeps new directories covered | Remove the catch-all |
+| 9 | The widget owns the user words for each state; the JSON carries states only | Keeps the JSON stable and the widget keyboard-neutral | Add text to the JSON |
+| 10 | One PR is kept, built slice by slice, docs and gate slice last | The owner's workflow | Split into several PRs |
+| 11 | Rollback is v0.4's own `uninstall`; no downgrade path | v0.3 was never published | Write a downgrade note |
+| 12 | `tests/test_repo.py` is structural only; the README is checked by a keyword per topic, not by sentence wording, plus the three M9 guards | Reconciles the design review (no prose asserts) with the acceptance review (README topics must be checked) | Drop the keyword list |
+| 13 | The `applied.json` write order is union-before-divert, final-after; the file has no `.bak` | A stop between the writes must still let uninstall reset everything | None needed |
+| 14 | Fn-swap keycap labels stay a README note | Needs per-OS-mode variants, a non-goal (ADR 0005) | Add a profile field later |
+| 15 | The closing "try these keys" line is built from the profiles' key labels | Bash may not know keyboards | Hard-code text |
+| 16 | New spec criteria are AC24 to AC26; the spec's AC3a is AC23 in this plan | Keeps existing numbering stable | Renumber |
+| 17 | The review section is titled `## Plan Review Summary` | The dev-team tooling reads that heading | Rename |
+| 18 | The all-absent message keeps the word "profile" (reviewer's text) while every other user string says "keyboard" | One sentence for contributors reading an issue | Reword |
+| 19 | When Solaar records no supported keyboard, setup still installs the helper and the Solaar autostart block (they belong to no keyboard) but writes no rules, Lock binding or record, and exits 2 | The rules and Lock binding come from the applied set | Write nothing at all |
+
+## Plan Review Summary
+
+Plan tier: complex — reviewers: Design, Acceptance, Parallelization, UX, Strategic (all five).
+First-pass verdicts were all **needs-revision**. This is revision 1; every item below is resolved in the plan or decided in the Decided list. The reviewers were not re-dispatched after the revision (the owner pre-approved the design); re-run them if a fresh read is wanted.
+
+### Design reviewer: needs-revision
+
+| Item | Kind | Resolution |
+|---|---|---|
+| D1 `lib/edit.py` at 412 lines, five new responsibilities | blocker | Step 1.5 (`solaarcfg.py` identity, Slice 1); Step 4.0 split into `fileedit.py`, `diversion.py`, `rules.py`, `applied.py`, `legacy.py`, `plan.py`; `edit.py` CLI only; `profiles.py` pure data with the directory as an argument; one test per escaping sink in `rules.py` |
+| D2 two argument shapes under one verb | blocker | Plan rules 1 and 3; Slice 4 is library only; new verbs in Step 5.0 under new names; v0.3 verbs deleted in Step 5.4; tree and `test_setup.sh` green after every slice |
+| D3 applied record ordering and content | blocker | Step 4.4 (union before divert, final after, matched names and model ids, atomic writer, no `.bak`, version read from `manifest.json` in one function); Step 5.1 order; scenarios "record written before the diversion" and "setup stopped between the record writes" |
+| D4 fresh install two-phase | blocker | Slice 5 intro and Step 5.1 (resolve the set, then apply idempotently, rules before diversion); scenario "first read knows none, second knows both" |
+| Keyboard knowledge out of bash (`SUPER + CTRL + Q` check, Lua comment, "Try F4 to F8") | warning | Steps 4.1, 4.5, 5.1: from profile data via the rules module and the plan |
+| Cross-profile chord/action check; Lua dedupe | warning | Step 1.2 (chord conflict), Step 4.1 (dedupe) |
+| `actions.json` entries `{argv}` or `{helper}` with a resolver taking the helper dir | warning | Step 1.1 `resolve_action` |
+| `classify()` `other` with an `overlaps` flag | warning | Step 4.2, plan warns only on overlap |
+| `edit.py plan` verb with a structured plan | warning | Step 4.5 (pure) and Step 5.0 (verb) |
+| `test_repo.py` structural only | warning | Step 6.1 and Decided 12 |
+| Derived-vs-old POP fixture equality and a round-trip test | warning | Step 1.4 (`test_fixture_equality.py`), Step 2.1 round trip |
+| Restore uses the matched block's exact name | warning | Step 2.4 and Decided 1 |
+
+### Parallelization reviewer: needs-revision
+
+| Item | Kind | Resolution |
+|---|---|---|
+| P1 `tests/test_status.py` written by Slices 3 and 5 undeclared | blocker | Step 2.4: Panel grep not ported; lines 313-314 moved; `test_status.py` references neither `Panel.qml` nor `edit.py` keys; Slice 3 and 5 no longer touch it |
+| P2 matcher duplicated (`matches()`/`known()`) | blocker | Step 1.5 builds `lib/solaarcfg.py` in Slice 1; Slices 2 and 4 import it read-only; old matchers removed |
+| P3 Slice 3 reads per-variant fixtures Slice 5 deletes | blocker | Step 2.2 commits `tests/qml/status-sample.json`; Slice 3 reads only that; `plan_waves.py` re-run clean |
+
+### Acceptance reviewer: needs-revision
+
+| Item | Kind | Resolution |
+|---|---|---|
+| A1 state truth table | blocker | Step 2.1 table, Slice 2 "live and saved diversion lines" outline, older-Solaar scenario; a dropped-only keyboard turns the icon warning |
+| A2 shared key name needs a synthetic profile and rule evaluation | blocker | Slice 4 scenarios and Step 4.1 (Solaar's own evaluator, fake devices, zero skips on dev); generator takes data arguments (the seam) |
+| A3 Solaar-dependent checks | blocker | Step 1.3 (injected table, pinned snapshot, `LK_REQUIRE_SOLAAR=1`), Slice 2 key-table outline, Pre-PR gate |
+| A4 POP AC to test inventory and v0.3 check count | blocker | Traceability tables, Step 2.4 (record 119), Step 5.4 (not lower) |
+| A5 chord regex, mutation rows, actions validation | blocker | Step 1.2 (regex and boundary table, extended Examples, action-table mutations), Slice 4 changed-table test |
+| A6 AC16 edge cases | blocker | Slice 4 record-robustness outline, "dropped id with no entry", Slice 5 record-problem outline, Step 4.4 |
+| A7 no-names check for `Panel.qml` in CI | blocker | Step 6.1 `panel_has_no_names` (stdlib), Slice 3 scenario |
+| A8 widget visibility split | blocker | Slice 3 visibility outline with the "not running" state defined |
+| A9 shared-name sandbox scenario | blocker | Slice 5 "both keyboards in one run" with the synthetic profile in a copied plugin tree |
+| A10 weak falsifiers and compound scenarios | blocker | "absent key dimmed" uses an irrelevant change (the dimming opacity) and checks a dimmed flag; "Uninstall removes both generations" is an Outline; the malformed-profile falsifier is "the reason text after the file and field names changes"; the key-table outline has a forced-unavailable row with a skip note; compound "X, or Y" scenarios are Outlines with one row per branch and explicit exit codes |
+| MX id set exactly {225, 191, 111, 10} | warning | Step 1.1 |
+| Masking scans MAC and hid paths; `verified.solaar` equals fixture version; POP fixture has zero absent keys | warning | Step 1.4 |
+| AC23 in Step 5.4 Covers; `edit.py` has no `RULES`; 212 diverted and 266 regular regression | warning | Step 5.4, Step 2.1 |
+| README per-topic phrases | warning | Step 6.2 keyword list, Decided 12 |
+| AC17 legacy outline with near-miss rows | warning | Slice 4 "Legacy command forms" outline |
+| `tests/permanent_slugs.txt` required by `test_profiles.py` | warning | Step 1.3 |
+| New scenarios (reader identity, older Solaar, offline keyboard, unknown schema, both dropped, restore writes nothing and uses the exact name, setup after migration, mouse only, hostile text, user rule with POP Device and unknown command, suffixed names split, new keyboard data only) | warning | Each is a scenario in Slices 1 to 5 |
+| `.feature` files and `# test:` tags | warning | `plan_gherkin_export.py` run; every scenario carries `# test:` |
+| Step 2.3 stubbed `hyprctl` test | warning | Step 2.3 |
+| Step 2.2 JSON spec (sorted, battery null and 0, bindings pinned) | warning | Step 2.2 and Step 1.1 |
+| Step 2.4 exact-name selector against every other block, config checksum, 20 s slow stub | warning | Step 2.4 |
+| Step 3.2 two dropped keyboards; stdlib mirror of pure logic | warning | Step 3.2 (`decisions.json`, `qml_logic.py --pure`) |
+| M9 commit `eff584c` exists on the branch | warning | Verified with `git log` (header) |
+
+### UX reviewer: needs-revision
+
+| Item | Kind | Resolution |
+|---|---|---|
+| U1 silent all-absent keyboard | blocker | Slice 3 copy table, scenarios "all absent" and "more than half absent", Step 3.2 |
+| U2 text states and vocabulary | warning | Slice 3 vocabulary table, key-row outline, Step 3.1 (`Accessible.name` where Qt supports it) |
+| U3 warning icon and tooltip copy | warning | Slice 3 copy table; JSON carries states only (Decided 9) |
+| U4 Re-apply setup button | warning | Slice 3 "Re-apply setup" scenario, Step 3.2 |
+| U5 consent plan layout, uninstall without record, legacy rule deletion, untested consent | warning | Step 4.5 and AC26; Decided 3, 4 and 5 |
+| U6 popup structure and accessibility | warning | Slice 3, Step 3.1 (Tab verification Risk), Decided 6 and 14 |
+| U7 README order and contributor path | warning | Step 6.2, Slice 6 order outline, Decided 7 |
+
+### Strategic reviewer: needs-revision
+
+| Item | Kind | Resolution |
+|---|---|---|
+| S1 generated rules never loaded by Solaar; no real-hardware check | blocker | Step 4.1 (own loader, skip is failure, result in the commit message); owner smoke test in the Pre-PR gate as an unverified item |
+| S2 applied record safety | blocker | Covered by D3 (Step 4.4, Step 5.1) |
+| S3 CLAUDE.md says the plugin is published | warning | `.claude/CLAUDE.md` reworded to "prepared for marketplace submission; not yet submitted"; owner fact-check in Risks |
+| S4 one PR | warning | Plan rule 2, Risks, Decided 10 |
+| S5 rollback | warning | README (Step 6.2), Risks, Decided 11 |
+| S6 owner pre-PR items | warning | Pre-PR gate owner list (rename, `preview.png`, code-owner review); Decided 8 |
+
+**Resolved blocker**: Slice 4 - lib/edit.py split into modules (D1)
+**Resolved blocker**: Slice 1 - one identity module built in Slice 1 and imported read-only (P2)
+**Resolved blocker**: Slice 4 - library functions only, new verbs under new names in Step 5.0 (D2)
+**Resolved blocker**: Slice 4 - applied record written as a superset before the diversion (D3)
+**Resolved blocker**: Slice 5 - two-phase setup for a fresh install (D4)
+**Resolved blocker**: Slice 2 - test_status.py owned by Slice 2 alone (P1)
+**Resolved blocker**: Slice 2 - committed status sample for the widget (P3)
+**Resolved blocker**: Slice 2 - live by saved truth table (A1)
+**Resolved blocker**: Slice 4 - shared key name checked with Solaar's own evaluator (A2)
+**Resolved blocker**: Slice 1 - injected key table with a pinned snapshot (A3)
+**Resolved blocker**: Slice 1 - chord regex, mutation rows and action-table validation (A5)
+**Resolved blocker**: Slice 3 - all-absent keyboard says so in words (U1)
+**Resolved blocker**: Slice 4 - generated rules loaded by Solaar's own loader (S1)
+
+## Build Progress
+
+This section is the machine-parseable recovery handle. `/build` updates checkboxes here via Edit tool so progress survives a `/clear` or session restart. `/continue` reads this section to determine the resume point.
+
+### Slices (grouped by wave)
+
+#### Wave 1
+- [ ] Slice 1: Profile schema, action table, the single reader and the identity module
+  - [ ] Step 1.1: Action table, new-schema profiles and the reader's loader
+  - [ ] Step 1.2: Strict validation, the chord regex and the mutation matrix
+  - [ ] Step 1.3: Injected key table, pinned snapshot and the zero-skip switch
+  - [ ] Step 1.4: Recorded fixtures, masking and derived variants
+  - [ ] Step 1.5: The identity module and the reader's command line
+
+#### Wave 2
+- [ ] Slice 2: Status and restore from exact diversion parsing
+  - [ ] Step 2.1: Per-device split, identity, the state table and exact diversion parsing
+  - [ ] Step 2.2: JSON status with a schema field
+  - [ ] Step 2.3: New bash helpers
+  - [ ] Step 2.4: Restore per keyboard, ambiguity-safe, and the v0.3 test inventory
+- [ ] Slice 4: Rule generation, reconciliation, the applied record and the plan, as modules
+  - [ ] Step 4.0: Split `lib/edit.py` into modules without changing behavior
+  - [ ] Step 4.1: Generate rules and Lua with an always-present Device condition
+  - [ ] Step 4.2: classify() for new, v0.3 and legacy shapes
+  - [ ] Step 4.3: Per-profile diversion
+  - [ ] Step 4.4: The applied record
+  - [ ] Step 4.5: The consent plan as a pure function
+
+#### Wave 3
+- [ ] Slice 3: The bar widget renders JSON only, in words
+  - [ ] Step 3.1: Parse the status JSON and render sections in words
+  - [ ] Step 3.2: Untested, absent, warnings and per-keyboard restore
+  - [ ] Step 3.3: Plugin identity
+- [ ] Slice 5: Setup and uninstall apply profiles, record state and migrate v0.3
+  - [ ] Step 5.0: The new edit.py verbs, under new names
+  - [ ] Step 5.1: Setup applies the known profiles in two phases
+  - [ ] Step 5.2: Uninstall and reconcile from the applied record
+  - [ ] Step 5.3: Migrate v0.3 blocks, helper and unmarked rules; warn about the old plugin
+  - [ ] Step 5.4: Retire the v0.3 single-keyboard code and fixtures
+
+#### Wave 4
+- [ ] Slice 6: Contributor gate and documentation (last)
+  - [ ] Step 6.1: CI workflow, PR template, CODEOWNERS and structural repo tests
+  - [ ] Step 6.2: README rewrite and "Add your keyboard"
+  - [ ] Step 6.3: Refresh project rules
