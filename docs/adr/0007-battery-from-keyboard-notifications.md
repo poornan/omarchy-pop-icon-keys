@@ -6,7 +6,9 @@ Date: 2026-11-19
 
 Accepted. Amended for [ADR 0008](0008-swappable-input-backend.md): the battery
 rules are the **Solaar backend's** implementation detail, and the status battery
-`source` gains `backend`.
+`source` gains `backend`. Amended 2026-11-19 by owner decision D18 (see
+Decision): the report is kept across reconnects and a lower query replaces it;
+the earlier rule that ignored a report older than the last connect is withdrawn.
 
 ## Context
 
@@ -74,14 +76,22 @@ Use Solaar rules to observe the keyboard's battery notifications.
 - The status JSON carries `battery` as null or `{value, level, source, at}`
   (`level` may be null), with `source` `report` or `query` (Solaar backend) or
   `backend` (the figure another backend's daemon cached, read at `at`, for
-  example OpenLogi's `openlogi api devices` battery). A report newer than the keyboard's last connect
-  is preferred; otherwise the query figure is used with `source` `query`. The
-  rule is held in **one function** (`report_is_fresh(report_at, connected_at)`)
-  with a test pinning it, so changing it is a one-line edit (see the pending note
-  under Consequences). A
-  report's `value` is its bucket midpoint.
-- The widget shows "≈15%" and the report's age for a report, and "Full?", not a
-  confident 100 %, when only the query says 100.
+  example OpenLogi's `openlogi api devices` battery). **Selection rule (D18,
+  owner-decided):** the latest keyboard report is kept and shown with its age,
+  across reconnects and Solaar restarts, until either a newer report arrives or a
+  direct query (or backend figure) returns a **lower** value, in which case the
+  query value is shown with source `query` (or `backend`). A query value equal to
+  or higher than the report never replaces it. With no report, the query figure
+  is shown. The owner chose this ("Keep last report (Recommended)") over ignoring
+  a report older than the last connect, knowing the stated risk below. The rule
+  is held in **one function**,
+  `choose_battery(report, query)`, with a test pinning each case; the status
+  builder no longer takes the keyboard's last connect as an input. A report's
+  `value` is its bucket midpoint.
+- The widget shows "≈15%" and the report's age (for example "≈15%, 3 h ago") for
+  a report, and "Full?", not a confident 100 %, when only the query says full or
+  100. When the query wins because it is lower, the exact figure is shown with
+  source `query` and no report age.
 - **Only reports are persisted.** `bin/logitech-keys-battery` (called by the
   rules, so only from a keyboard report) is the only writer of
   `$XDG_STATE_HOME/logitech-keys/battery/`. A query result (Solaar's
@@ -93,14 +103,14 @@ Use Solaar rules to observe the keyboard's battery notifications.
 ## Consequences
 
 - The figure is accurate to a 10 % bucket and only as fresh as the keyboard's
-  last report; the widget shows the age. A report older than the last connect is
-  ignored, so after a reconnect the figure falls back to the query until the next
-  report. **This freshness rule is pending the owner's choice**: it keeps a
-  pre-restart report from beating a fresh query, but the query can be the stale
-  100 % that this ADR exists to avoid, so after a Solaar restart the widget can
-  show "Full?" where the last report said 15 %. The current rule stays until the
-  owner decides; the alternative is to prefer the report whatever its age and show
-  the age.
+  last report; the widget shows the age.
+- **Limitation (D18, accepted by the owner).** The last report is kept whatever
+  its age. After the owner fits new batteries the widget keeps showing the old
+  low value (for example "≈15%, 3 h ago") until the keyboard reports again, which
+  it does soon after power-up; Restore and Refresh do not force a report. A query
+  that returns a higher value (a stale 100 % included) never replaces the report,
+  which is the stale-query problem this ADR exists to avoid. A query that returns
+  a lower value does replace it, so a battery that has dropped is not hidden.
 - Setup writes more rules (ten per battery-capable keyboard), all in the managed
   block, covered by the same classify, reconcile and uninstall paths.
 - Live verification needs Solaar to reload the rules; setup restarts it, but the
