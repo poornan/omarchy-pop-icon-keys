@@ -124,21 +124,26 @@ Feature: The status helper reports each profiled keyboard exactly
   Scenario Outline: The battery is an object from the keyboard's report, the query, or null
     # Still passes if: the battery line carries an extra status word
     # test: tests/test_status.py::battery_values
-    Given the keyboard's last connect was at <connected>, <report>, and Solaar prints <query>
+    Given the report file holds <report> and Solaar prints <query>
     When the status is read
     Then the battery is <battery>
 
     Examples:
-      | connected | report                                      | query                      | battery                                         |
-      | 09:00     | a report at 10:00 in the 10 to 19 bucket    | Battery: 100%              | value 15, source report, at 10:00               |
-      | 09:00     | a report at 08:00 in the 10 to 19 bucket    | Battery: 100%              | value 100, source query                         |
-      | 09:00     | no report file                              | Battery: 80%               | value 80, source query                          |
-      | 09:00     | no report file                              | Battery: 0%                | value 0, source query                           |
-      | 09:00     | no report file                              | no battery line            | null                                            |
-      | 09:00     | a damaged report file                       | Battery: 80%               | value 80, source query                          |
-      | 09:00     | a report with a bucket above 100            | Battery: 80%               | value 80, source query                          |
-      | unknown   | a report at 10:00 in the 0 to 9 bucket      | no battery line            | value 5, source report, at 10:00                |
-      | 09:00     | a report at 10:00 in the 90 to 100 bucket   | Battery: 20%               | value 95, source report, at 10:00               |
+      | report                                                  | query                      | battery                                         |
+      | a report at 10:00 in the 10 to 19 bucket                | Battery: 100%              | value 15, source report, at 10:00               |
+      | a report from before the keyboard's last connect, in the 10 to 19 bucket | Battery: 100% | value 15, source report (the report is kept: D18) |
+      | a report in the 10 to 19 bucket                         | Battery: 12%               | value 12, source query (the lower query wins)   |
+      | a report in the 10 to 19 bucket                         | Battery: 15%               | value 15, source report (equal: the report stays) |
+      | a report in the 10 to 19 bucket                         | Battery: 16%               | value 15, source report                         |
+      | a report in the 90 to 100 bucket                        | Battery: 20%               | value 20, source query                          |
+      | the helper wrote the 10 to 19 bucket at 08:00, then the 20 to 29 bucket at 10:00 | Battery: 100% | value 25, source report, at 10:00 (the newer report wins) |
+      | no report file                                          | Battery: 100%              | value 100, source query                         |
+      | no report file                                          | Battery: 80%               | value 80, source query                          |
+      | no report file                                          | Battery: 0%                | value 0, source query                           |
+      | no report file                                          | no battery line            | null                                            |
+      | a damaged report file                                   | Battery: 80%               | value 80, source query                          |
+      | a report with a bucket above 100                        | Battery: 80%               | value 80, source query                          |
+      | a report at 10:00 in the 0 to 9 bucket                  | no battery line            | value 5, source report, at 10:00                |
 
   Scenario: The report file is read for the right keyboard only
     # Still passes if: the other keyboard's file holds an older report
@@ -147,19 +152,25 @@ Feature: The status helper reports each profiled keyboard exactly
     When the status is read for both
     Then only the MX Keys for Mac shows a report and the POP Icon Keys falls back to its query
 
-  Scenario Outline: The battery freshness rule is one function and today's behaviour is pinned
-    # Still passes if: the report's value or the query figure differs
-    # test: tests/test_status.py::report_is_fresh_rule
-    Given report_is_fresh is called with a report at <report> and a connect at <connect>
+  Scenario Outline: The battery choice is one function and ignores connect times
+    # Still passes if: the report's age or the query's level differs
+    # test: tests/test_status.py::choose_battery_rule
+    Given choose_battery is called with <report> and <query>
     Then it returns <result>
-    And battery_for uses that function and no other comparison of the two times
+    And battery_for uses that function and no other comparison of a report and a query
+    And no connect time is an input of battery_for or choose_battery
 
     Examples:
-      | report | connect | result                                        |
-      | 10:00  | 09:00   | true                                          |
-      | 08:00  | 09:00   | false (the pre-restart report loses, pending the owner's choice) |
-      | 09:00  | 09:00   | false                                         |
-      | 10:00  | unknown | true                                          |
+      | report                  | query                   | result                                         |
+      | report 15 (any age)     | query 100               | the report (the owner's case, an old report still wins) |
+      | report 15               | query 12                | the query, source query                        |
+      | report 15               | query 15                | the report (equal)                             |
+      | report 15               | query 16                | the report                                     |
+      | report 95               | query 20                | the query, source query                        |
+      | report 15               | none                    | the report                                     |
+      | none                    | query 100               | the query, source query (the widget says Full?) |
+      | none                    | query 80                | the query, source query                        |
+      | none                    | none                    | null                                           |
 
   Scenario Outline: The status carries a backend block and only known key states
     # Still passes if: the backend's label text changes

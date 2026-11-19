@@ -110,6 +110,13 @@ Feature: The repository gates keyboard contributions and documents them
     And it gives the command solaar --window=hide, says to leave Solaar running and names the widget's Start Solaar button
     And the flag in that command is accepted by the installed solaar --help and is the one the setup script uses for autostart
 
+  Scenario: The README says a new battery report arrives after fitting batteries and Restore does not force one
+    # Still passes if: the explanation is reworded
+    # test: tests/test_repo.py::readme_battery
+    Given the README
+    Then it says that the widget keeps showing the last battery report with its age until the keyboard reports again
+    And it says a new report arrives soon after fitting batteries and that Restore or Refresh does not force one
+
   Scenario: The README has an experimental OpenLogi section with an install note and no piped installer
     # Still passes if: the AUR package name is cited with a version
     # test: tests/test_repo.py::readme_openlogi

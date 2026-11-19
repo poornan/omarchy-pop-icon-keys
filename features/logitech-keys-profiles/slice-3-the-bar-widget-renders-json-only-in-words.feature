@@ -191,6 +191,8 @@ Feature: One bar icon shows every connected profiled keyboard, in words
     Examples:
       | battery                                       | text                    |
       | a report of 15 taken five minutes ago         | ≈15% with the report's age |
+      | a report of 15 taken three hours ago, no newer figure | ≈15% with "3 h ago" (the old report is kept) |
+      | a query figure of 12 that was lower than the report | 12%, no age         |
       | a query figure of 80                          | 80%                     |
       | a query figure of 100                         | Full?                   |
       | a backend figure of 100                       | Full?                   |
