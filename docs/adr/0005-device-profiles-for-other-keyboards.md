@@ -7,8 +7,9 @@ Date: 2026-11-19
 Accepted. Amended after the architect review of 2026-11-19 (identity, actions,
 `Device` rule, applied state, `absent`, schema field, non-goals) and again after
 the plan review of the same day (module layout, applied-record order and
-content, injected key table, escaping, restore, two-phase setup). Rename:
-[ADR 0006](0006-rename-to-logitech-keys.md).
+content, injected key table, escaping, restore, two-phase setup), and a third
+time for the swappable backend ([ADR 0008](0008-swappable-input-backend.md)).
+Rename: [ADR 0006](0006-rename-to-logitech-keys.md).
 
 Owner decisions behind it: D1 ("make it multi-keyboard before submitting"),
 D3 (POP Icon Keys and MX Keys for Mac), D4 (MX ships untested to demonstrate
@@ -17,14 +18,17 @@ presses still untested), D5 (no per-user overrides), D6 (one bar icon for all
 keyboards) and **D7** ("apply architect must-fix changes when it finishes":
 architect items M1–M9, including action ids and the applied-state record). Full
 quotes are in the Ambiguity Log of
-[the spec](../specs/logitech-keys-profiles.md). **This ADR will be extended by
-ADR 0008** (a swappable Solaar or OpenLogi backend, decision D13; not yet
-written): profiles stay backend-neutral and the Solaar-specific parts here
-(rules, `config.yaml` diversion, the `Device` condition) become one backend's
-implementation. Until ADR 0008 is accepted, this ADR describes the Solaar
-behaviour. Additions after the 2026-11-19 verification: an optional profile
-`note` (one line of plain text) and an optional `battery` field naming the HID++
-battery feature ([ADR 0007](0007-battery-from-keyboard-notifications.md)).
+[the spec](../specs/logitech-keys-profiles.md). **ADR 0008** (a swappable Solaar or
+OpenLogi backend, decision D13) extends this ADR: profiles stay
+backend-neutral, and the Solaar-specific parts below (rules, `config.yaml`
+diversion, the `Device` condition, the applied record's entries) are the Solaar
+backend's implementation, behind a backend seam. Additions after the 2026-11-19
+verification: an optional profile `note` (one line of plain text), an optional
+`battery` field naming the HID++ battery feature
+([ADR 0007](0007-battery-from-keyboard-notifications.md)), a required top-level
+`osMode` (moved out of `verified`, and corrected: the keyboards run in MacOS
+mode, not Linux), an optional `backends` section, and a `verified` block without
+`osMode`.
 
 ## Context
 
@@ -50,8 +54,15 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
 
 - **Profiles.** One file per keyboard in `profiles/<slug>.json` with
   `"schema": 1`. Fields: `slug`, `displayName`, `modelIds`, `names`, `keys`
-  (`name`, `cid`, `label`, `action`), optional `bindings` (`chord`, `action`,
-  `label`) and optional `verified` (`solaar`, `date`, `osMode`, `fnSwap`). One
+  (`name`, `cid`, `label`, `action`), required top-level `osMode` (a Solaar
+  multiplatform OS base name: Linux, MacOS, Windows, iOS, Android, WebOS, Chrome,
+  WinEmb or Tizen; both shipped keyboards are `MacOS`), optional `bindings`
+  (`chord`, `action`, `label`), optional `battery` (`{"feature": "UNIFIED
+  BATTERY" | "BATTERY STATUS"}`, ADR 0007), optional `note`, optional
+  `backends` (only the key `openlogi`: `{names?, verified?}`; keys a subset of the
+  profile's cids; a verified block needs a recorded, non-synthetic OpenLogi
+  fixture; ADR 0008) and optional `verified` (`solaar`, `date`, `fnSwap`, the
+  Solaar reference; it means "tested"). One
   reader, `lib/profiles.py`, validates strictly: unknown fields fail; name and
   cid are paired and, where Solaar is importable, cross-checked against its
   `CONTROL` table; model ids and chords match fixed formats. Nothing else reads
@@ -77,6 +88,10 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
   Uninstall resets from it, even for a profile that no longer ships, and deletes
   it. The record is written atomically with no `.bak`; a damaged or newer record
   stops setup and uninstall before any change. Comments in rules are not state.
+- **Backend seam.** The modules below are the Solaar backend, reached through
+  `lib/backends/solaar.py` (ADR 0008); profiles, status JSON and the widget are
+  backend-neutral. The applied record gains a `backend` field and per-backend
+  `artifacts`.
 - **Module layout.** `lib/edit.py` is the command line only. One module owns each
   concern: `lib/solaarcfg.py` (the one device-to-profile matcher and
   `config.yaml` entry parsing), `lib/fileedit.py` (read, back up, atomic write,
@@ -122,8 +137,8 @@ Solaar's own behaviour constrains the design (checked on Solaar 1.1.20):
 - Modifier conditions (Solaar's `Modifiers` returns False with no keymap on
   Wayland).
 - Gestures and thumb buttons.
-- Per-OS-mode variants: `verified.osMode` records the mode and a profile assumes
-  that one mode.
+- Per-OS-mode variants: the top-level `osMode` records the mode and a profile
+  assumes that one mode.
 - Per-user overrides.
 - Key-release events.
 

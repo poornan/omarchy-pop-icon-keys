@@ -4,7 +4,9 @@ Date: 2026-11-19
 
 ## Status
 
-Accepted
+Accepted. Amended for [ADR 0008](0008-swappable-input-backend.md): the battery
+rules are the **Solaar backend's** implementation detail, and the status battery
+`source` gains `backend`.
 
 ## Context
 
@@ -56,8 +58,10 @@ Use Solaar rules to observe the keyboard's battery notifications.
   that a profile defines and an integer 0-100, and writes
   `$XDG_STATE_HOME/logitech-keys/battery/<slug>` (the value and the epoch time)
   atomically. It writes nothing under `/tmp`.
-- The status JSON carries `battery` as null or `{value, source, at}`, with
-  `source` `report` or `query`. A report newer than the keyboard's last connect
+- The status JSON carries `battery` as null or `{value, level, source, at}`
+  (`level` may be null), with `source` `report` or `query` (Solaar backend) or
+  `backend` (the figure another backend's daemon cached, read at `at`, for
+  example OpenLogi's `openlogi api devices` battery). A report newer than the keyboard's last connect
   is preferred; otherwise the query figure is used with `source` `query`. A
   report's `value` is its bucket midpoint.
 - The widget shows "≈15%" and the report's age for a report, and "Full?", not a
@@ -76,6 +80,8 @@ Use Solaar rules to observe the keyboard's battery notifications.
   end-to-end result on the owner's keyboards is unverified and left to the owner.
   The rule evaluation itself is tested with Solaar's own rule code.
 - The helper, the state file and the status JSON do not depend on Solaar. Only
-  the generated rules do, so ADR 0008 (swappable backend, pending) can make
-  them an implementation detail of the Solaar backend and let another backend
-  write the same state file.
+  the generated rules do, and ADR 0008 makes them an implementation detail of the
+  Solaar backend (`lib/backends/solaar.py`); the rules, their classification and
+  their removal belong to that backend's plan. The OpenLogi backend does not
+  write rules or the state file: it reads the battery from its agent
+  (`source` `backend`).
