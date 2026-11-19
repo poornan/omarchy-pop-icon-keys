@@ -9,7 +9,14 @@
 set -uo pipefail
 
 DEVICE="POP Icon Keys"
-MAPPED=("Show Desktop" "MultiPlatform Search" "Dictation" "Emoji" "Screen Capture")
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+# shellcheck source=../lib/solaar-procs.sh
+source "$HERE/../lib/solaar-procs.sh"
+# The mapped keys, from the plugin's single key list.
+MAPPED=()
+while IFS=$'\t' read -r _ name; do [[ -n $name ]] && MAPPED+=("$name"); done \
+  < <(python3 -I "$HERE/../lib/edit.py" keys 2>/dev/null)
+(( ${#MAPPED[@]} )) || MAPPED=("Show Desktop" "MultiPlatform Search" "Dictation" "Emoji" "Screen Capture")
 
 if ! command -v solaar >/dev/null 2>&1; then
   printf 'installed=0\nrunning=0\nconnected=0\nbattery=\ndiverted=\nsaved=\nmissing=\ninactive=\n'
@@ -17,7 +24,7 @@ if ! command -v solaar >/dev/null 2>&1; then
 fi
 
 running=0
-[[ -n $(pgrep -x solaar 2>/dev/null) ]] && running=1
+[[ -n $(solaar_daemon_pids) ]] && running=1
 
 out=$(timeout 20 solaar show "$DEVICE" 2>/dev/null || true)
 

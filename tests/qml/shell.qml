@@ -71,6 +71,7 @@ ShellRoot {
       status(["installed=1", "running=1", "connected=1", "battery=80", "diverted=",
               "saved=" + all, "missing=", "inactive=" + all])
       check("restore needed", barPanel.needsRestore, true)
+      check("held back by the one-minute limit", barPanel.restoring, false)
       check("setup not needed", barPanel.needsSetup, false)
       check("status line", barPanel.statusLine(), "Keyboard dropped 5 key(s). Restore")
       check("row says dropped", barPanel.keyState("Dictation"), "dropped")
@@ -101,6 +102,19 @@ ShellRoot {
               "saved=" + all, "missing=", "inactive=" + all])
       check("restore not offered", barPanel.needsRestore, false)
       check("setup offered instead", barPanel.needsSetup, true)
+
+      console.log("manual restore")
+      barPanel.lastAutoRestore = 0
+      status(["installed=1", "running=0", "connected=1", "battery=80", "diverted=",
+              "saved=" + all, "missing=", "inactive=" + all])
+      check("refused while Solaar is stopped", barPanel.restoreKeys(), false)
+      check("no restore time recorded", barPanel.lastAutoRestore, 0)
+
+      console.log("setup command and timings")
+      check("plain path quoted", barPanel.shellQuote("/a/setup"), "'/a/setup'")
+      check("space and quote survive bash", barPanel.shellQuote("/my dir/it's/setup"), "'/my dir/it'\\''s/setup'")
+      check("setup command is quoted", barPanel.setupCommand(), barPanel.shellQuote(barPanel.pluginDir + "/setup"))
+      check("re-check waits past Solaar's 5 s save", barPanel.restoreCheckMs >= 6000, true)
 
       console.log(failures === 0 ? "ALL OK" : failures + " FAILED")
     }

@@ -39,6 +39,9 @@ Panel {
   property bool restoring: restoreProc.running
   property double lastAutoRestore: 0
   property int setupChecksLeft: 0
+  // Read again this long after a restore, once Solaar's deferred save (about 5 s)
+  // has landed; reading sooner shows the restored key as "needs setup" for a moment.
+  readonly property int restoreCheckMs: 8000
 
   readonly property int lowBatteryPercent: 15
   readonly property bool lowBattery: connected && battery >= 0 && battery <= lowBatteryPercent
@@ -111,26 +114,36 @@ Panel {
     statusProc.running = true
   }
 
-  // Re-applies the saved diversion for the keys the keyboard dropped. Changes no file.
+  // Re-applies Solaar's saved diversion for the keys the keyboard dropped; changes
+  // no setting. Only with Solaar running: it is the running Solaar that missed the
+  // reconnect. A manual restore also holds back the automatic one for a minute.
   function restoreKeys() {
-    if (pluginDir === "" || restoreProc.running || inactiveKeys.length === 0) return
+    if (pluginDir === "" || !solaarRunning || restoreProc.running || inactiveKeys.length === 0) return false
+    lastAutoRestore = Date.now()
     restoreProc.command = [pluginDir + "/bin/pop-icon-keys-restore"].concat(inactiveKeys)
     restoreProc.running = true
+    return true
   }
 
   // At most once a minute, so a keyboard that keeps dropping keys cannot cause a loop.
   function maybeAutoRestore() {
-    if (!autoRestore || !needsRestore || restoreProc.running) return
-    var now = Date.now()
-    if (now - lastAutoRestore < 60000) return
-    lastAutoRestore = now
+    if (!autoRestore || !needsRestore) return
+    if (Date.now() - lastAutoRestore < 60000) return
     restoreKeys()
   }
+
+  // Quote a string for bash: the terminal launcher joins its arguments into one
+  // `bash -c` command, so a plugin folder with spaces or quotes must be quoted.
+  function shellQuote(value) {
+    return "'" + String(value).replace(/'/g, "'\\''") + "'"
+  }
+
+  function setupCommand() { return shellQuote(pluginDir + "/setup") }
 
   // Setup asks before changing any file, so it runs in a terminal the user can answer.
   function runSetup() {
     if (pluginDir === "") return
-    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", pluginDir + "/setup"])
+    Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", setupCommand()])
     // The terminal runs on its own, so check again every 10 s for 2 minutes, or until setup is no longer needed.
     setupChecksLeft = 12
     close()
@@ -164,9 +177,7 @@ Panel {
   // `solaar show` talks to the keyboard and takes a few seconds, so poll gently.
   Timer { interval: 120000; running: true; repeat: true; onTriggered: root.refresh() }
 
-  // Read again after a restore, once Solaar's deferred save (about 5 s) has landed;
-  // reading sooner shows the restored key as "needs setup" for a moment.
-  Timer { id: restoreCheck; interval: 8000; repeat: false; onTriggered: root.refresh() }
+  Timer { id: restoreCheck; interval: root.restoreCheckMs; repeat: false; onTriggered: root.refresh() }
 
   // After the setup terminal opens.
   Timer {

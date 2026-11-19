@@ -6,37 +6,45 @@ Every edit reads the whole file, computes the new text, and then:
   - under POP_DRY_RUN=1 prints a unified diff instead of writing;
   - otherwise backs the file up (keeping the newest few backups), and replaces
     it atomically through a temporary file in the same folder. A symlinked file
-    is written through to its target. CRLF line endings are kept.
+    is written through to its target. The file's line endings are kept (a file
+    that mixes CRLF and LF gets whichever is more common).
 
 Exit codes: 0 done, 3 no saved entry for the device, 4 file unreadable or not
 understood, 5 broken marker lines. Messages go to stderr; nothing is changed on
 a non-zero exit.
 """
+import datetime
 import difflib
 import glob
+import json
 import os
 import re
 import shutil
 import sys
 import tempfile
-import time
 
 MARK = "pop-icon-keys"
-KEEP_BACKUPS = int(os.environ.get("POP_KEEP_BACKUPS", "3"))
+try:
+    KEEP_BACKUPS = max(1, int(os.environ.get("POP_KEEP_BACKUPS", "3")))
+except ValueError:
+    KEEP_BACKUPS = 3
 DRY_RUN = os.environ.get("POP_DRY_RUN") == "1"
 
-# The rules this plugin writes. Key name -> Execute command (the Show Desktop
-# helper path is filled in at run time). Uninstall and setup recognise these
-# exact rules even after Solaar's own editor has rewritten rules.yaml and
-# dropped the marker comments.
+# The single list of mapped keys: Solaar key name, Solaar control id (REPROG
+# CONTROLS V4 on the POP Icon Keys), rule comment, and Execute command (None:
+# the Show Desktop helper, whose path is filled in at run time). lib.sh, the
+# status and restore helpers read the names and ids from here (`edit.py keys`);
+# tests/test_setup.sh checks that Panel.qml lists the same names. Uninstall and
+# setup recognise these exact rules even after Solaar's own editor has
+# rewritten rules.yaml and dropped the marker comments.
 RULES = [
-    ("Show Desktop", "F4 Show Desktop -> empty workspace (press again to return)", None),
-    ("MultiPlatform Search", "F5 Search -> Omarchy app launcher", ["omarchy-shell", "omarchy.dock", "apps"]),
-    ("Dictation", "F6 Dictation -> Omarchy dictation (same as Alt+Space; follows the chosen backend)", ["omarchy-dictation", "toggle"]),
-    ("Emoji", "F7 Emoji -> Omarchy emoji picker", ["omarchy-shell", "shell", "toggle", "omarchy.emojis"]),
-    ("Screen Capture", "F8 Screen Capture -> region screenshot", ["omarchy-capture-screenshot", "region"]),
+    ("Show Desktop", 110, "F4 Show Desktop -> empty workspace (press again to return)", None),
+    ("MultiPlatform Search", 266, "F5 Search -> Omarchy app launcher", ["omarchy-shell", "omarchy.dock", "apps"]),
+    ("Dictation", 259, "F6 Dictation -> Omarchy dictation (same as Alt+Space; follows the chosen backend)", ["omarchy-dictation", "toggle"]),
+    ("Emoji", 264, "F7 Emoji -> Omarchy emoji picker", ["omarchy-shell", "shell", "toggle", "omarchy.emojis"]),
+    ("Screen Capture", 212, "F8 Screen Capture -> region screenshot", ["omarchy-capture-screenshot", "region"]),
 ]
-SHOW_DESKTOP_NAME = "pop-icon-keys-show-desktop"
+KEY_NAMES = [r[0] for r in RULES]
 
 
 class Refuse(Exception):
@@ -48,7 +56,8 @@ class Refuse(Exception):
 # --- reading and writing ------------------------------------------------------
 
 def read(path):
-    """Return (text with LF newlines, uses_crlf). A missing file reads as empty."""
+    """Return (text with LF newlines, uses_crlf). A missing file (or a symlink to
+    a missing file) reads as empty."""
     if not os.path.exists(path):
         return "", False
     try:
@@ -59,20 +68,26 @@ def read(path):
         raise Refuse(4, f"{path} is not UTF-8 text; left unchanged")
     except OSError as e:
         raise Refuse(4, f"cannot read {path}: {e.strerror}")
-    crlf = "\r\n" in text
-    return (text.replace("\r\n", "\n") if crlf else text), crlf
+    crlf_count = text.count("\r\n")
+    # Keep whichever line ending the file mostly uses.
+    crlf = crlf_count > 0 and crlf_count * 2 >= text.count("\n")
+    return text.replace("\r\n", "\n"), crlf
 
 
 def backup(path):
-    """Copy PATH next to itself as PATH.bak.pop-icon-keys.<time>, keep the newest few."""
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    target = f"{path}.bak.{MARK}.{stamp}"
+    """Copy PATH next to itself as PATH.bak.pop-icon-keys.<time>, keep the newest few.
+
+    Backups are ordered by the time in their name, not by file time: a copy
+    keeps the original file's modification time, which can be years old."""
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    prefix = f"{path}.bak.{MARK}."
+    target = prefix + stamp
     n = 1
-    while os.path.exists(target):
+    while os.path.lexists(target):
         n += 1
-        target = f"{path}.bak.{MARK}.{stamp}-{n}"
+        target = f"{prefix}{stamp}_{n}"
     shutil.copy2(path, target)
-    olds = sorted(glob.glob(glob.escape(path) + f".bak.{MARK}.*"), key=os.path.getmtime, reverse=True)
+    olds = sorted(glob.glob(glob.escape(prefix) + "*"), key=lambda p: p[len(prefix):], reverse=True)
     for old in olds[KEEP_BACKUPS:]:
         try:
             os.remove(old)
@@ -93,6 +108,15 @@ def commit(path, old, new, crlf):
             print("      " + line)
         return True
     data = (new.replace("\n", "\r\n") if crlf else new).encode("utf-8")
+    try:
+        write(path, data)
+    except OSError as e:
+        raise Refuse(4, f"cannot write {path}: {e.strerror or e}; left unchanged")
+    print(f"  changed: {path}")
+    return True
+
+
+def write(path, data):
     real = os.path.realpath(path)
     folder = os.path.dirname(real) or "."
     os.makedirs(folder, exist_ok=True)
@@ -117,8 +141,6 @@ def commit(path, old, new, crlf):
         except OSError:
             pass
         raise
-    print(f"  changed: {path}")
-    return True
 
 
 def current_umask():
@@ -262,7 +284,7 @@ def cmd_divert(path, device, value, ids):
 # --- Solaar rules -------------------------------------------------------------
 
 def plugin_command(key, show_desktop):
-    for name, _, command in RULES:
+    for name, _, _, command in RULES:
         if name == key:
             return [show_desktop] if command is None else command
     return None
@@ -271,14 +293,18 @@ def plugin_command(key, show_desktop):
 def rules_body(show_desktop):
     out = ["# Logitech POP Icon Keys top row -> Omarchy. Managed by the pop-icon-keys plugin;",
            "# re-running its setup replaces this block, its uninstall removes it."]
-    for name, comment, command in RULES:
+    for name, _, comment, command in RULES:
         command = [show_desktop] if command is None else command
-        out += ["---", f"# {comment}", f"- Key: [{name}, pressed]", f"- Execute: [{', '.join(command)}]", "..."]
+        # JSON strings are valid YAML, so a path with spaces, commas or brackets stays one argument.
+        execute = ", ".join(json.dumps(part, ensure_ascii=False) for part in command)
+        out += ["---", f"# {comment}", f"- Key: [{name}, pressed]", f"- Execute: [{execute}]", "..."]
     return "\n".join(out)
 
 
 def documents(lines, skip):
-    """Yield (first, last, text) for each '---' ... '...' YAML document outside SKIP (a line range)."""
+    """Yield (first, last, text) for each '---' ... '...' YAML document outside SKIP
+    (the marked block's line range). A document left open runs up to the next
+    '---', the marked block, or the end of the file, never into the block."""
     i = 0
     while i < len(lines):
         if skip and skip[0] <= i <= skip[1]:
@@ -286,7 +312,7 @@ def documents(lines, skip):
             continue
         if lines[i].rstrip() == "---":
             j = i + 1
-            while j < len(lines) and lines[j].rstrip() not in ("...", "---"):
+            while j < len(lines) and lines[j].rstrip() not in ("...", "---") and not (skip and j == skip[0]):
                 j += 1
             last = j if j < len(lines) and lines[j].rstrip() == "..." else j - 1
             yield i, last, "\n".join(lines[i + 1:j])
@@ -300,15 +326,18 @@ def classify(doc, show_desktop):
     ('other', key) for any other rule on one of its keys, or (None, None)."""
     try:
         import yaml
+    except ImportError:
+        raise Refuse(4, "Python's yaml module (PyYAML, package python-yaml) is required to read Solaar's rules")
+    try:
         data = yaml.safe_load(doc)
-    except Exception:
+    except yaml.YAMLError:
         return None, None
     if not isinstance(data, list):
         return None, None
     key = None
     for part in data:
         if isinstance(part, dict) and isinstance(part.get("Key"), list) and part["Key"]:
-            if part["Key"][0] in [r[0] for r in RULES]:
+            if part["Key"][0] in KEY_NAMES:
                 key = part["Key"][0]
     if key is None:
         return None, None
@@ -317,8 +346,7 @@ def classify(doc, show_desktop):
         command = data[1]["Execute"]
         command = [command] if isinstance(command, str) else command
         want = plugin_command(key, show_desktop)
-        if command == want or (key == "Show Desktop" and len(command) == 1
-                               and os.path.basename(str(command[0])) == SHOW_DESKTOP_NAME):
+        if command == want:
             return "plugin", key
     return "other", key
 
@@ -363,6 +391,10 @@ def main(argv):
             cmd_has_block(args[0], args[1])
         elif command == "divert":
             cmd_divert(args[0], args[1], args[2], args[3:])
+        elif command == "keys":
+            # "<id>\t<name>" per mapped key, for the shell scripts.
+            for name, cid, _, _ in RULES:
+                print(f"{cid}\t{name}")
         elif command == "rules-body":
             print(rules_body(args[0]))
         elif command == "rules-scan":

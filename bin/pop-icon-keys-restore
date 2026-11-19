@@ -3,17 +3,32 @@
 # this after sleeping or reconnecting, and Solaar does not always notice).
 #
 # Only for keys that Solaar's saved settings already divert: this re-applies
-# that saved setting to the keyboard and changes no file. With Solaar running,
-# `solaar config` hands the change to the running Solaar, which applies it and
-# saves the same value it already had.
+# that saved setting to the keyboard and changes no setting. With Solaar
+# running, `solaar config` hands the change to the running Solaar, which applies
+# it and saves the same value it already had (config.yaml may be rewritten with
+# identical settings).
 #
-# Usage: pop-icon-keys-restore [KEY...]   (default: the five mapped keys)
+# Usage: pop-icon-keys-restore [KEY...]   (default: the plugin's mapped keys)
 set -uo pipefail
 
 DEVICE="POP Icon Keys"
-if (( $# )); then keys=("$@"); else keys=("Show Desktop" "MultiPlatform Search" "Dictation" "Emoji" "Screen Capture"); fi
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+# shellcheck source=../lib/solaar-procs.sh
+source "$HERE/../lib/solaar-procs.sh"
+
+if (( $# )); then
+  keys=("$@")
+else
+  keys=()
+  while IFS=$'\t' read -r _ name; do [[ -n $name ]] && keys+=("$name"); done \
+    < <(python3 -I "$HERE/../lib/edit.py" keys 2>/dev/null)
+fi
+(( ${#keys[@]} )) || { echo "error: no keys to restore" >&2; exit 1; }
 
 command -v solaar >/dev/null 2>&1 || { echo "error: Solaar is not installed" >&2; exit 1; }
+# This is for a running Solaar that missed a reconnect. Without one there is
+# nothing to hand the change to; starting Solaar applies the saved setting itself.
+[[ -n $(solaar_daemon_pids) ]] || { echo "error: Solaar is not running; start it with: solaar --window=hide" >&2; exit 1; }
 
 failed=0
 for key in "${keys[@]}"; do

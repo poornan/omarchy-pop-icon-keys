@@ -13,7 +13,7 @@ Removes what setup added: the marked blocks in Solaar's rules, Hyprland's
 bindings and autostart, the Show Desktop helper, and the key diversion. Rules
 that are exact copies of this plugin's (left behind when Solaar's own rule
 editor rewrites rules.yaml without the markers) are removed too. Other lines
-and rules you added yourself are left alone.
+and rules you added yourself are left alone. Run it before removing Solaar.
 
   --dry-run, -n   show each change (as a diff) without making it
   --yes, -y       accept the changes without asking
@@ -22,8 +22,11 @@ EOF
 
 parse_args "$@"
 
-command -v python3 >/dev/null 2>&1 || die "python3 is required but not installed"
+preflight
+take_lock
+load_keys
 
+# Broken marker lines or unreadable files stop uninstall here, before anything changes.
 rules_block=0 bindings_block=0 autostart_block=0
 has_block "$RULES_FILE" "#" && rules_block=1
 has_block "$BINDINGS_FILE" "--" && bindings_block=1
@@ -31,55 +34,94 @@ has_block "$AUTOSTART_FILE" "--" && autostart_block=1
 
 copies=()
 if [[ -f $RULES_FILE ]]; then
+  scan=$(rules_scan)
   while IFS=$'\t' read -r kind key; do
     [[ $kind == plugin ]] && copies+=("$key")
-  done < <(edit rules-scan "$RULES_FILE" "$SHOW_DESKTOP" || die "could not read $RULES_FILE")
+  done <<<"$scan"
 fi
 
 solaar_installed=0
 command -v solaar >/dev/null 2>&1 && solaar_installed=1
+reset_diversion=0
+(( solaar_installed )) && [[ -f $SOLAAR_CONFIG ]] && reset_diversion=1
 
-say "POP Icon Keys uninstall will change these files (each is backed up first, newest 3 kept):"
+say "POP Icon Keys uninstall will change these files (a file edited in place is backed up first, newest 3 kept):"
 (( rules_block )) && say "  $RULES_FILE    remove the key rules block"
 (( ${#copies[@]} )) && say "  $RULES_FILE    remove copies of this plugin's rules outside the block: $(IFS=,; echo "${copies[*]}")"
-[[ -e $SHOW_DESKTOP ]] && say "  $SHOW_DESKTOP    delete"
-(( solaar_installed )) && [[ -f $SOLAAR_CONFIG ]] \
-  && say "  $SOLAAR_CONFIG    set the five mapped keys back to Regular (Solaar is restarted if running)"
+[[ -e $SHOW_DESKTOP || -L $SHOW_DESKTOP ]] && say "  $SHOW_DESKTOP    delete"
+if (( reset_diversion )); then
+  say "  $SOLAAR_CONFIG    set the five mapped keys back to Regular, including any you"
+  say "      had diverted yourself before setup (Solaar is restarted if it is running)"
+fi
 (( bindings_block )) && say "  $BINDINGS_FILE    remove the Lock key binding block"
 (( autostart_block )) && say "  $AUTOSTART_FILE    remove the Solaar autostart block"
+(( bindings_block || autostart_block )) && say "  Hyprland is reloaded"
+if (( ! solaar_installed )); then
+  say "  (Solaar is not installed, so its saved key diversion cannot be reset)"
+fi
 say ""
 confirm "Apply these changes?" || { say "Nothing changed."; exit 0; }
 (( DRY_RUN )) && say "Dry run: showing the changes, writing nothing."
 
-# Diversion first: it needs Solaar stopped, and if Solaar will not stop nothing has changed yet.
-was_running=0
-restart_on_exit() { (( was_running )) && start_solaar; return 0; }
-if (( solaar_installed )) && [[ -f $SOLAAR_CONFIG ]]; then
-  [[ -n $(solaar_pids) ]] && was_running=1
-  trap restart_on_exit EXIT
-  stop_solaar || { was_running=0; die "Solaar did not stop, so its settings could not be changed safely. Nothing was changed."; }
+# However uninstall ends (an error, Ctrl-C, the terminal closing), a Solaar it
+# stopped is started again.
+solaar_armed=0
+on_exit() {
+  local rc=$?
+  trap - EXIT INT TERM HUP
+  if (( solaar_armed )); then
+    solaar_armed=0
+    restart_solaar || true
+  fi
+  exit "$rc"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# Diversion first: with the keys back to Regular, leftover rules can no longer
+# fire, so a failure later leaves the keyboard working as it does without the plugin.
+diversion_reset=0
+if (( reset_diversion )); then
+  [[ -n $(solaar_pids) ]] && solaar_armed=1
+  stop_solaar || die "Solaar did not stop, so its settings could not be changed safely. Nothing was changed."
   status=0
   set_diversion 0 || status=$?
   case $status in
-    0) ;;
+    0) diversion_reset=1 ;;
     3) warn "no saved Solaar entry for \"$DEVICE\"; no diversion to reset" ;;
     *) die "could not update $SOLAAR_CONFIG (see above); nothing else was changed" ;;
   esac
+  if (( solaar_armed )); then
+    solaar_armed=0
+    restart_solaar || warn "Solaar was running before uninstall; start it again with: solaar --window=hide"
+  fi
 fi
 
-(( ${#copies[@]} )) && { edit rules-drop-copies "$RULES_FILE" "$SHOW_DESKTOP" || die "$RULES_FILE was left unchanged"; }
+if (( ${#copies[@]} )); then
+  edit rules-drop-copies "$RULES_FILE" "$SHOW_DESKTOP" || die "$RULES_FILE was left unchanged"
+fi
 (( rules_block )) && write_block "$RULES_FILE" "#" ""
 
-[[ -e $SHOW_DESKTOP ]] && run rm -f -- "$SHOW_DESKTOP"
+if [[ -e $SHOW_DESKTOP || -L $SHOW_DESKTOP ]]; then
+  run rm -f -- "$SHOW_DESKTOP" || die "could not delete $SHOW_DESKTOP"
+fi
 
-(( was_running )) && start_solaar
-was_running=0
-
-(( bindings_block )) && write_block "$BINDINGS_FILE" "--" ""
-(( autostart_block )) && write_block "$AUTOSTART_FILE" "--" ""
-
-reload_hyprland
+hypr_changed=0
+if (( bindings_block )); then write_block "$BINDINGS_FILE" "--" ""; (( LAST_CHANGED )) && hypr_changed=1; fi
+if (( autostart_block )); then write_block "$AUTOSTART_FILE" "--" ""; (( LAST_CHANGED )) && hypr_changed=1; fi
+(( hypr_changed )) && { reload_hyprland || true; }
 
 say ""
-if (( DRY_RUN )); then say "Dry run complete; nothing was written."; else say "Done. The top row sends the keyboard's own shortcuts again."; fi
+if (( DRY_RUN )); then
+  say "Dry run complete; nothing was written."
+elif (( diversion_reset )); then
+  say "Done. The top row sends the keyboard's own shortcuts again."
+elif (( ! solaar_installed )); then
+  say "Done, except the key diversion: Solaar is not installed, so its saved setting was"
+  say "left as it is. The keyboard sends its own shortcuts again after it is turned off and on."
+else
+  say "Done. There was no saved key diversion to reset."
+fi
 say "To remove the plugin itself: omarchy plugin remove io.github.poornan.pop-icon-keys"
