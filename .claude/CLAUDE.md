@@ -22,7 +22,7 @@ not yet submitted (v0.3 was only installed from a local path by the owner).
   `lib/legacy.py` (frozen v0.3 table), `lib/plan.py` (consent plan as data).
 - **Profiles and actions:** `profiles/*.json`, `lib/actions.json`, read only by
   `lib/profiles.py` (stdlib). `lib/status.py` builds the widget's JSON.
-- **Helpers:** `bin/logitech-keys-*` (status, restore, show-desktop).
+- **Helpers:** `bin/logitech-keys-*` (status, restore, show-desktop, battery).
 - **External tools:** solaar, hyprctl, jq (never on profiles), pgrep, setsid, timeout.
 - No package manager, no build step.
 
@@ -80,6 +80,10 @@ the QML ones (they need quickshell).
 - **`$XDG_STATE_HOME/logitech-keys/applied.json`** records what setup diverted
   (slug, control ids, version). Setup reconciles against it, uninstall resets
   from it and deletes it. Rule comments are not state (Solaar drops them).
+  **`.../battery/<slug>`** holds the last battery report (value, epoch time),
+  written only by `bin/logitech-keys-battery`, which Solaar rules call
+  (ADR 0007); uninstall removes the whole state directory. Never parse Solaar
+  logs or add `-d` for battery, and never use `/tmp`.
 - **Key state `absent`** (in neither diversion line) is dimmed and never counts
   toward the needs-setup warning.
 - **One recorded fixture per profile** (`tests/fixtures/<slug>/`, first line has
@@ -96,15 +100,26 @@ the QML ones (they need quickshell).
 - **Marketplace security baseline:** no `curl | sh`, no unpinned `git clone` or
   exec, no `sudo` or sudoers, no process control based on `/tmp` state, no
   hard-coded `/home` paths.
+- **Both keyboards run in MacOS OS mode** (Solaar "Set OS" = MacOS), not Linux.
+  Cmd = Super, Opt = Alt and the Lock chord `SUPER + CTRL + Q` (the macOS lock
+  shortcut) are what that mode sends. The plugin never changes the OS mode;
+  setup only warns on a mismatch. Never write "Linux OS mode".
 - Key names and Solaar control ids (POP: 110 Show Desktop, 212 MultiPlatform
   Search, 259 Dictation, 264 Emoji, 266 Screen Capture) are verified only on
-  Solaar 1.1.20 with the POP Icon Keys in Linux OS mode. The MX Keys for Mac
-  profile is untested.
+  Solaar 1.1.20 with the POP Icon Keys in MacOS OS mode. The MX Keys for Mac
+  profile's device data was recorded from real hardware (2026-11-19) but its
+  key presses are untested, so it has no `verified` block (a `note` says so).
+- **Backend:** the owner decided on a swappable backend, Solaar or OpenLogi
+  (D13). ADR 0008 is pending (architect pass); until it is accepted, code and
+  specs describe Solaar only, and new code should keep keyboard and battery
+  logic out of Solaar-specific files.
 
 ## dev-team workflow
 
 Specs and plans are files here, not GitHub issues.
 
+- **Route all dev work through `dev-team:orchestrator`** (owner decision D9:
+  "always invoke through orchestrator").
 - Specs: `docs/specs/<slug>.md` (Intent, Architecture Specification, Acceptance
   Criteria, Glossary, Ambiguity Log, Consistency Gate).
 - Plans: `plans/<slug>.md` (vertical slices with Gherkin scenarios).
@@ -120,15 +135,20 @@ written afterwards from the code and the design conversation, and say so.
 - Work happens on feature branches, never directly on `main`. Open a pull
   request to `main` with dev-team `/pr` (pre-PR gate, then the PR). Commit
   locally; push and open the PR only when the owner asks.
+- Release workflow (owner decision D8): branch, `/pr`, auto-merge, then tag
+  `main`. Owner-side prerequisites, **not yet done**: allow auto-merge in the
+  repo settings, protect `main` with the CI check as a required check, and the
+  owner approves at PR time.
 - Version lives only in `manifest.json` (`version`, semver). Bump it in the
   same commit as the change. A new profile is a minor bump, a fix a patch;
   profile PRs may batch into one release.
 - Releases are tagged `v<version>` on `main` after the PR is merged, with a
   GitHub release.
-- Marketplace updates go through the marketplace's **Plugin verification**
-  issue form ("Verify and publish a newer upstream commit") with the full
-  40-character SHA of the release commit. Until approved, the listing shows
-  "Update unverified".
+- Future process, once the plugin has been submitted and listed: updates go
+  through the marketplace's **Plugin verification** issue form ("Verify and
+  publish a newer upstream commit") with the full 40-character SHA of the
+  release commit; until approved, the listing would show "Update unverified".
+  Nothing has been submitted yet.
 - `preview.png` at the repo root is the marketplace image; crop screenshots to
   the bar and popup only, with no personal windows or names.
 - Plain imperative commit subjects. This is the owner's own repo with no CLA,
