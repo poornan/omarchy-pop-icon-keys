@@ -10,6 +10,22 @@ the plan review of the same day (module layout, applied-record order and
 content, injected key table, escaping, restore, two-phase setup). Rename:
 [ADR 0006](0006-rename-to-logitech-keys.md).
 
+Owner decisions behind it: D1 ("make it multi-keyboard before submitting"),
+D3 (POP Icon Keys and MX Keys for Mac), D4 (MX ships untested to demonstrate
+the extension structure; its device data was later verified from hardware, key
+presses still untested), D5 (no per-user overrides), D6 (one bar icon for all
+keyboards) and **D7** ("apply architect must-fix changes when it finishes":
+architect items M1–M9, including action ids and the applied-state record). Full
+quotes are in the Ambiguity Log of
+[the spec](../specs/logitech-keys-profiles.md). **This ADR will be extended by
+ADR 0008** (a swappable Solaar or OpenLogi backend, decision D13; not yet
+written): profiles stay backend-neutral and the Solaar-specific parts here
+(rules, `config.yaml` diversion, the `Device` condition) become one backend's
+implementation. Until ADR 0008 is accepted, this ADR describes the Solaar
+behaviour. Additions after the 2026-11-19 verification: an optional profile
+`note` (one line of plain text) and an optional `battery` field naming the HID++
+battery feature ([ADR 0007](0007-battery-from-keyboard-notifications.md)).
+
 ## Context
 
 Other Logitech keyboards (MX Keys, MX Keys Mini, POP Keys, K-series) have

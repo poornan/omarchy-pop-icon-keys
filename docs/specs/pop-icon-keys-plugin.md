@@ -8,6 +8,11 @@ packaging and release), not from the code. Each criterion cites its source.
 Where the code and the owner's words disagree, the Ambiguity Log records it
 instead of adopting the code's behaviour.
 
+**Correction, 2026-11-19.** Earlier text said the keyboard runs in Linux OS
+mode. That was wrong. The owner verified that Solaar reports `Set OS: MacOS`
+(and `Set OS (saved): MacOS`, `multiplatform: 1` in `config.yaml`). The keyboard
+runs in **MacOS OS mode** and the plugin relies on it (Ambiguity Log row 3).
+
 ## Intent Description
 
 The owner uses a **Logitech POP Icon Keys** keyboard (Mac layout, Bolt
@@ -20,7 +25,7 @@ The owner wants:
 1. **The top row to behave as it does on macOS** — "can do the full mapping
    (use macos)", applied to Logitech's published per-OS key table (A 17:32).
 2. **Mac modifier positions with Omarchy semantics**: Cmd acts as Super and
-   Opt as Alt, as the keyboard sends in its Linux OS mode. A swap to
+   Opt as Alt, as the keyboard sends in its MacOS OS mode. A swap to
    Opt = Super was explicitly rejected: "I want the other way" (A 17:46).
 3. **Dictation through the owner's chosen backend** (Superwhisper), the same
    action as Opt+Space, not a personal script (B: "link it to wisper";
@@ -49,9 +54,12 @@ Keys, and changing the keyboard's OS mode.
 - **Dropped diversion:** the keyboard can drop its live diversion by itself
   (observed in session B; restarting Solaar restored it). The widget compares
   live and saved diversion and re-applies it at runtime without writing files.
-- **Lock key:** the keyboard sends `Super+Ctrl+Q` (the macOS lock shortcut),
-  which Solaar cannot remap; a Hyprland binding maps it to
-  `omarchy-system-lock`.
+- **OS mode:** the keyboard stays in **MacOS OS mode** (Solaar "Set OS" =
+  MacOS). That mode sends Cmd as Super, Opt as Alt and the macOS shortcuts; the
+  plugin never changes the mode and its key mapping assumes it.
+- **Lock key:** the keyboard sends `Super+Ctrl+Q` (the macOS lock shortcut,
+  sent only in MacOS mode), which Solaar cannot remap; a Hyprland binding maps
+  it to `omarchy-system-lock`.
 - **Plugin packaging:** an Omarchy 4.x plugin requires a UI kind, so the
   plugin is a `bar-widget` (`Panel.qml`) with `setup` and `uninstall` scripts
   that make the config changes.
@@ -63,7 +71,7 @@ Keys, and changing the keyboard's OS mode.
 
 ## Acceptance Criteria
 
-Key mapping (keyboard in Linux OS mode, Fn-swap on):
+Key mapping (keyboard in MacOS OS mode, Fn-swap on):
 
 - **AC1 — F4 Show Desktop** shows an empty desktop; pressing it again returns
   to the previous workspace. (A: macOS column "Show Desktop"; B: "F4 yes".)
@@ -78,11 +86,12 @@ Key mapping (keyboard in Linux OS mode, Fn-swap on):
   deliberately differs from the macOS column ("Screenshot (full screen)"); see
   Ambiguity Log row 1. (A: "works" after a region mapping; B: "F8 workss";
   B: owner chose "Region (keep current)" on 2026-11-19.)
-- **AC6 — Lock (Fn + last key)** locks the screen. (A: macOS column "Screen
+- **AC6 — Lock (Fn + last key)** locks the screen. This depends on MacOS mode,
+  because the Super+Ctrl+Q chord it sends is the macOS lock shortcut. (A: macOS column "Screen
   Lock"; B: "Fn + lock yes".)
 - **AC7 —** F9–F12, brightness and all other keys keep their existing
   behaviour. (A: "F9–F12 … unchanged" was accepted.)
-- **AC8 —** Cmd sends Super and Opt sends Alt. (A 17:46.)
+- **AC8 —** Cmd sends Super and Opt sends Alt (what MacOS mode sends). (A 17:46.)
 
 Reliability:
 
@@ -125,7 +134,7 @@ Sharing and packaging:
 | Diverted / Regular | Solaar per-key setting: Diverted sends the press to Solaar rules; Regular lets the keyboard send its built-in shortcut | `unverified` | Solaar UI and behaviour, sessions A–B |
 | Live vs saved diversion | Live: what the keyboard currently does. Saved: Solaar's `config.yaml` value it applies on start | `unverified` | `solaar show` output, session B |
 | Dropped keys | Saved = Diverted but live = Regular | `unverified` | Observed in session B |
-| Linux OS mode | Keyboard setting that makes Cmd send Super and Opt send Alt | `verified` | Session A wev captures; owner accepted |
+| MacOS OS mode | Keyboard setting (Solaar "Set OS" = MacOS) in which Cmd sends Super, Opt sends Alt and Lock sends Super+Ctrl+Q. It replaces the earlier "Linux OS mode" term, which was wrong | `verified` | Owner, 2026-11-19: `solaar show` "Set OS: MacOS", `config.yaml` `multiplatform: 1`; session A wev captures for the key output |
 | macOS column | The macOS behaviour column of Logitech's per-OS key table the owner pasted | `verified` | Session A 17:32 |
 | Marked block | Lines between `BEGIN pop-icon-keys` and `END pop-icon-keys` comments that only the plugin edits | `unverified` | Plugin design |
 
@@ -135,7 +144,7 @@ Sharing and packaging:
 |---|----------|---------------|-------------|-------------------|
 | 1 | **F8: full-screen (macOS column) or region screenshot?** The owner asked for the macOS mapping; Logitech's macOS column says "Screenshot (full screen)". Session A mapped F8 to `Print` (Omarchy's screenshot shortcut), then to region capture, calling region "macOS behaviour" in error. The owner tested region and said it works. | `requires-stakeholder-input` | human (B, 2026-11-19) | "Region (keep current)": the owner's tested preference overrides the macOS column for F8. |
 | 2 | Cmd = Super, Opt = Alt (no swap) | `requires-stakeholder-input` | human (A 17:46) | "I want the other way" after a swap to Opt = Super was applied; swap reverted. |
-| 3 | Keep keyboard in Linux OS mode rather than macOS mode | `inferable` | inference (A) | macOS mode swaps modifiers and sends Mac-only shortcuts; the macOS *behaviour* is reproduced with Solaar rules instead. The owner did not object. |
+| 3 | OS mode of the keyboard | `requires-stakeholder-input` | human (owner, 2026-11-19, D10) | Corrected. This row said "keep the keyboard in Linux OS mode" (inferred in session A); the owner showed it never was. The keyboard is in **MacOS mode** (`Set OS: MacOS`); the plugin relies on it. Cmd = Super and Opt = Alt are what MacOS mode sends, and the Lock key's `Super+Ctrl+Q` is the macOS lock shortcut and depends on it. The plugin does not change the mode. |
 | 4 | F6 target: owner's personal voxtype script vs Omarchy dictation | `requires-stakeholder-input` | human (B) | "link it to wisper"; then "OS already map opt + space" → `omarchy-dictation toggle`, which follows the selected backend. |
 | 5 | F4 behaviour: empty workspace vs hiding windows | `requires-stakeholder-input` | human (B) | Explained as the nearest Hyprland equivalent; owner confirmed "F4 yes" (returns on second press). |
 | 6 | Lock key binding to `omarchy-system-lock` | `inferable` | inference (B) | Key sends `Super+Ctrl+Q`, unbound in Omarchy; owner confirmed "Fn + lock yes". |
